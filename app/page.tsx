@@ -92,8 +92,8 @@ function PdfExportStage({ page }: { page: WordPage }) {
     </header>
     {page.words.map((item, index) => <article className={`pdf-word-card ${item.tone}`} data-pdf-card key={item.id}>
       <div className="pdf-card-top"><span>{String(index + 1).padStart(2, "0")}</span><b>{item.status}</b></div>
-      <h3>{item.word}</h3><p className="pdf-phonetic">{item.phonetic}</p><p className="pdf-part">{item.part}</p>
-      <div className="pdf-section"><small>MEANING</small><p className="pdf-meaning">{item.meaning}</p></div>
+      <h3>{item.word}</h3><p className="pdf-phonetic">{item.phonetic}</p>
+      <div className="pdf-section"><small>MEANING</small><div className="pdf-meaning-row"><p className="pdf-part">{item.part}</p><p className="pdf-meaning">{item.meaning}</p></div></div>
       {item.examples.some(Boolean) && <div className="pdf-section"><small>EXAMPLES</small><ol>{item.examples.filter(Boolean).map((example, exampleIndex) => <li key={exampleIndex}><span>{exampleIndex + 1}.</span>{example}</li>)}</ol></div>}
       <div className="pdf-note"><small>NOTE · MD</small><MarkdownPreview content={item.note} /></div>
     </article>)}
@@ -445,8 +445,8 @@ export default function Home() {
       <section className="collection-heading"><div><p className="eyebrow">The collection</p><h2>词语标本</h2></div><p><strong>{visibleWords.length}</strong> / {words.length} WORDS</p></section>
       <section className="card-grid" aria-label="单词卡片列表">{visibleWords.map((item, cardIndex) => <article className={`word-card ${item.tone}`} key={item.id}>
         <div className="card-topline"><span>{String(cardIndex + 1).padStart(2, "0")}</span><select aria-label={`${item.word} 的学习状态`} value={item.status} onChange={(event) => updateWord(item.id, { status: event.target.value as WordCard["status"] })}><option>学习中</option><option>待复习</option><option>已掌握</option></select><div className="card-actions"><button className="enrich-button" disabled={loadingId !== null} onClick={() => enrichWord(item.id)}>{loadingId === item.id ? "查询中…" : "自动补全"}</button><button className="delete-button" aria-label={`删除 ${item.word}`} onClick={() => removeWord(item.id)}>×</button></div></div>
-        <div className="word-title"><EditableText value={item.word} label="英文单词" className="word-input" onChange={(word) => updateWord(item.id, { word })} onBlur={() => { if (item.phonetic === "/phonetic/" || item.meaning === "在这里填写中文释义") enrichWord(item.id); }} /><EditableText value={item.phonetic} label={`${item.word} 的音标`} className="phonetic-input" onChange={(phonetic) => updateWord(item.id, { phonetic })} /><EditableText value={item.part} label={`${item.word} 的词性`} className="part-input" onChange={(part) => updateWord(item.id, { part })} /></div>
-        <div className="meaning-block"><span className="section-label">Meaning</span><EditableText multiline value={item.meaning} label={`${item.word} 的释义`} className="meaning-input" onChange={(meaning) => updateWord(item.id, { meaning })} /></div>
+        <div className="word-title"><EditableText value={item.word} label="英文单词" className="word-input" onChange={(word) => updateWord(item.id, { word })} onBlur={() => { if (item.phonetic === "/phonetic/" || item.meaning === "在这里填写中文释义") enrichWord(item.id); }} /><EditableText value={item.phonetic} label={`${item.word} 的音标`} className="phonetic-input" onChange={(phonetic) => updateWord(item.id, { phonetic })} /></div>
+        <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word} 的词性`} className="part-input" onChange={(part) => updateWord(item.id, { part })} /><EditableText multiline value={item.meaning} label={`${item.word} 的释义`} className="meaning-input" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>
         <div className={`details-grid examples-only ${item.examples.length === 0 ? "empty-examples" : ""}`}><div>
           {item.examples.length > 0 && <><span className="section-label">Examples</span><ol>{item.examples.map((example, index) => <li key={index}><span>{index + 1}.</span><EditableText multiline value={example} label="英文例句" onChange={(value) => updateExample(item.id, index, value)} /></li>)}</ol></>}
           <button className="add-example-button" onClick={() => addExample(item.id)}>＋ 添加例句</button>
