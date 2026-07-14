@@ -178,7 +178,7 @@ h1 em { color: #7f8e84; font-weight: 400; }
 .part-input { width: max-content; max-width: 100%; margin-top: 11px; color: color-mix(in srgb, var(--accent) 70%, #5c6961); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .18em; }
 .meaning-block { padding: 19px 0 16px; }
 .section-label { display: block; margin-bottom: 8px; color: #909991; font-size: 8px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; }
-.meaning-input { min-height: 29px; font-family: Georgia, "Songti SC", serif; font-size: 16px; line-height: 1.72; color: #3b4941; }
+.meaning-input { min-height: 58px; white-space: pre-wrap; font-family: Georgia, "Songti SC", serif; font-size: 16px; line-height: 1.72; color: #3b4941; }
 
 .details-grid { display: grid; grid-template-columns: .85fr 1.35fr; gap: 28px; padding: 17px 0 18px; border-top: 1px solid var(--line); }
 .details-grid.examples-only { grid-template-columns: 1fr; }
@@ -250,7 +250,7 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
 .pdf-part { margin: 6px 0 12px; color: #748078; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .15em; }
 .pdf-section { padding: 11px 0 9px; border-top: 1px solid #dde1dd; }
 .pdf-section small, .pdf-note > small { display: block; margin-bottom: 5px; color: #8b958e; font-size: 7px; font-weight: 700; letter-spacing: .18em; }
-.pdf-meaning { margin: 0; color: #39483f; font-family: Georgia, "Songti SC", serif; font-size: 12.5px; line-height: 1.55; }
+.pdf-meaning { margin: 0; white-space: pre-line; color: #39483f; font-family: Georgia, "Songti SC", serif; font-size: 12.5px; line-height: 1.55; }
 .pdf-section ol { margin: 0; padding: 0; list-style: none; }
 .pdf-section li { display: grid; grid-template-columns: 17px 1fr; gap: 3px; margin: 4px 0; color: #56635b; font-family: Georgia, serif; font-size: 10.5px; line-height: 1.4; }
 .pdf-section li span { color: var(--pdf-accent); }

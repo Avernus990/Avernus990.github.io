@@ -41,7 +41,14 @@ const statuses: Array<"全部" | WordCard["status"]> = ["全部", "学习中", "
 function EditableText({ value, onChange, className = "", multiline = false, label, onBlur }: {
   value: string; onChange: (value: string) => void; className?: string; multiline?: boolean; label: string; onBlur?: () => void;
 }) {
-  if (multiline) return <textarea aria-label={label} className={`editable ${className}`} value={value} rows={1} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} />;
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!multiline || !textareaRef.current) return;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  }, [multiline, value]);
+
+  if (multiline) return <textarea ref={textareaRef} aria-label={label} className={`editable ${className}`} value={value} rows={2} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} />;
   return <input aria-label={label} className={`editable ${className}`} value={value} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} />;
 }
 

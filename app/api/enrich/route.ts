@@ -9,6 +9,38 @@ type Entry = {
   meanings?: Meaning[];
 };
 
+const containsChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
+
+function decodeTranslation(value: string) {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+async function translateToChinese(text: string) {
+  const response = await fetch(
+    `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 420))}&langpair=en|zh-CN`,
+    { headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) return "";
+
+  const payload = await response.json() as {
+    responseData?: { translatedText?: string };
+    matches?: Array<{ translation?: string }>;
+  };
+  const candidates = [
+    payload.responseData?.translatedText,
+    ...(payload.matches ?? []).map((match) => match.translation),
+  ];
+  const translated = candidates
+    .map((candidate) => decodeTranslation(candidate?.trim() ?? ""))
+    .find(containsChinese);
+  return translated ?? "";
+}
+
 export async function GET(request: NextRequest) {
   if (!(await requestHasAccess(request))) return unauthorizedResponse();
   const word = request.nextUrl.searchParams.get("word")?.trim().toLowerCase();
@@ -31,22 +63,14 @@ export async function GET(request: NextRequest) {
     const definitions = meanings
       .flatMap((meaning) => meaning.definitions ?? [])
       .filter((definition) => definition.definition)
-      .slice(0, 2);
-    const englishMeaning = definitions.map((definition) => definition.definition).join("; ");
-
-    let chineseMeaning = englishMeaning;
-    if (englishMeaning) {
-      const translationResponse = await fetch(
-        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(englishMeaning.slice(0, 480))}&langpair=en|zh-CN`,
-        { headers: { Accept: "application/json" } },
-      );
-      if (translationResponse.ok) {
-        const translation = await translationResponse.json() as {
-          responseData?: { translatedText?: string };
-        };
-        chineseMeaning = translation.responseData?.translatedText || englishMeaning;
-      }
-    }
+      .slice(0, 3);
+    const translatedDefinitions = await Promise.all(
+      definitions.map((definition) => translateToChinese(definition.definition ?? "")),
+    );
+    const chineseDefinitions = translatedDefinitions.filter(containsChinese);
+    const chineseMeaning = chineseDefinitions
+      .map((definition, index) => `${index + 1}. ${definition}`)
+      .join("\n");
 
     const rawPhonetic = entry?.phonetic || entry?.phonetics?.find((item) => item.text)?.text || "";
     const examples = meanings
