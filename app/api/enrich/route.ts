@@ -20,25 +20,50 @@ function decodeTranslation(value: string) {
     .replace(/&gt;/g, ">");
 }
 
-async function translateToChinese(text: string) {
-  const response = await fetch(
-    `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 420))}&langpair=en|zh-CN`,
-    { headers: { Accept: "application/json" } },
-  );
-  if (!response.ok) return "";
+async function translateWithMyMemory(text: string) {
+  try {
+    const response = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 420))}&langpair=en|zh-CN`,
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(6500) },
+    );
+    if (!response.ok) return "";
 
-  const payload = await response.json() as {
-    responseData?: { translatedText?: string };
-    matches?: Array<{ translation?: string }>;
-  };
-  const candidates = [
-    payload.responseData?.translatedText,
-    ...(payload.matches ?? []).map((match) => match.translation),
-  ];
-  const translated = candidates
-    .map((candidate) => decodeTranslation(candidate?.trim() ?? ""))
-    .find(containsChinese);
-  return translated ?? "";
+    const payload = await response.json() as {
+      responseData?: { translatedText?: string };
+      matches?: Array<{ translation?: string }>;
+    };
+    const candidates = [
+      payload.responseData?.translatedText,
+      ...(payload.matches ?? []).map((match) => match.translation),
+    ];
+    return candidates
+      .map((candidate) => decodeTranslation(candidate?.trim() ?? ""))
+      .find(containsChinese) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+async function translateWithGoogle(text: string) {
+  try {
+    const response = await fetch(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(text.slice(0, 420))}`,
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(6500) },
+    );
+    if (!response.ok) return "";
+    const payload = await response.json() as Array<Array<[string?]>>;
+    const translated = (payload[0] ?? [])
+      .map((segment) => segment?.[0] ?? "")
+      .join("")
+      .trim();
+    return containsChinese(translated) ? translated : "";
+  } catch {
+    return "";
+  }
+}
+
+async function translateToChinese(text: string) {
+  return await translateWithMyMemory(text) || await translateWithGoogle(text);
 }
 
 export async function GET(request: NextRequest) {
@@ -64,10 +89,11 @@ export async function GET(request: NextRequest) {
       .flatMap((meaning) => meaning.definitions ?? [])
       .filter((definition) => definition.definition)
       .slice(0, 3);
-    const translatedDefinitions = await Promise.all(
-      definitions.map((definition) => translateToChinese(definition.definition ?? "")),
-    );
-    const chineseDefinitions = translatedDefinitions.filter(containsChinese);
+    const chineseDefinitions: string[] = [];
+    for (const definition of definitions) {
+      const translated = await translateToChinese(definition.definition ?? "");
+      if (containsChinese(translated)) chineseDefinitions.push(translated);
+    }
     const chineseMeaning = chineseDefinitions
       .map((definition, index) => `${index + 1}. ${definition}`)
       .join("\n");
@@ -85,7 +111,8 @@ export async function GET(request: NextRequest) {
       part: meanings[0]?.partOfSpeech || "",
       meaning: chineseMeaning,
       examples,
-      source: "Free Dictionary API + MyMemory",
+      translationAvailable: chineseDefinitions.length > 0,
+      source: "Free Dictionary API + Chinese translation fallback",
     });
   } catch {
     return NextResponse.json({ error: "外部词典暂时无法连接，请稍后再试" }, { status: 502 });

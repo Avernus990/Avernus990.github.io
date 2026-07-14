@@ -277,10 +277,12 @@ export default function Home() {
     setLoadingId(id); setMessage("");
     try {
       const response = await fetch(`/api/enrich?word=${encodeURIComponent(item.word.trim())}`);
-      const data = await response.json() as { error?: string; phonetic?: string; part?: string; meaning?: string; examples?: string[] };
+      const data = await response.json() as { error?: string; phonetic?: string; part?: string; meaning?: string; examples?: string[]; translationAvailable?: boolean };
       if (!response.ok) throw new Error(data.error || "自动补全失败");
       updateWord(id, { phonetic: data.phonetic || item.phonetic, part: data.part || item.part, meaning: data.meaning || item.meaning });
-      setMessage(`“${item.word}”已由在线词典自动补全`);
+      setMessage(data.translationAvailable === false
+        ? `“${item.word}”的音标已补全，中文翻译服务暂时繁忙，请稍后再试`
+        : `“${item.word}”已由在线词典自动补全`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "自动补全失败"); }
     finally { setLoadingId(null); }
   };
