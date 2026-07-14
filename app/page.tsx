@@ -38,8 +38,9 @@ const starterPages: WordPage[] = [{ id: "page-1", name: "春日词语", words: s
 const tones: WordCard["tone"][] = ["lilac", "water", "peach", "sage"];
 const statuses: Array<"全部" | WordCard["status"]> = ["全部", "学习中", "待复习", "已掌握"];
 
-function EditableText({ value, onChange, className = "", multiline = false, label, onBlur }: {
+function EditableText({ value, onChange, className = "", multiline = false, label, onBlur, autoFocus = false, onFocus, placeholder }: {
   value: string; onChange: (value: string) => void; className?: string; multiline?: boolean; label: string; onBlur?: () => void;
+  autoFocus?: boolean; onFocus?: () => void; placeholder?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -48,8 +49,8 @@ function EditableText({ value, onChange, className = "", multiline = false, labe
     textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
   }, [multiline, value]);
 
-  if (multiline) return <textarea ref={textareaRef} aria-label={label} className={`editable ${className}`} value={value} rows={2} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} />;
-  return <input aria-label={label} className={`editable ${className}`} value={value} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} />;
+  if (multiline) return <textarea ref={textareaRef} aria-label={label} className={`editable ${className}`} value={value} rows={2} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} />;
+  return <input aria-label={label} className={`editable ${className}`} value={value} placeholder={placeholder} autoFocus={autoFocus} onFocus={onFocus} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} />;
 }
 
 function renderInlineMarkdown(text: string): ReactNode[] {
@@ -75,7 +76,7 @@ function MarkdownPreview({ content }: { content: string }) {
 }
 
 function MarkdownNote({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(() => !value.trim());
   return <div className="markdown-note">
     <button type="button" className="markdown-toggle" onClick={() => setEditing((current) => !current)}>{editing ? "完成并预览" : "编辑 Markdown"}</button>
     {editing ? <textarea aria-label={label} value={value} rows={5} onChange={(event) => onChange(event.target.value)} /> : <MarkdownPreview content={value} />}
@@ -115,6 +116,7 @@ export default function Home() {
   const [accessState, setAccessState] = useState<"checking" | "locked" | "unlocked">("checking");
   const [accessPassword, setAccessPassword] = useState("");
   const [accessError, setAccessError] = useState("");
+  const [focusWordId, setFocusWordId] = useState<number | null>(null);
   const pageMenuRef = useRef<HTMLDivElement>(null);
 
   const activePage = pages.find((page) => page.id === activePageId) ?? pages[0];
@@ -230,12 +232,14 @@ export default function Home() {
     const examples = [...item.examples]; examples[index] = value; return { ...item, examples };
   }));
 
-  const addWord = () => updateActiveWords((current) => [{
-    id: Date.now(), word: "new word", phonetic: "/phonetic/", part: "part of speech", status: "学习中", meaning: "在这里填写中文释义",
-    examples: [],
-    note: "## 学习笔记\n- 记录词源或使用语境\n- 用 **粗体** 标出易错点\n- 用 `code` 标记固定表达",
-    tone: tones[current.length % tones.length],
-  }, ...current]);
+  const addWord = () => {
+    const id = Date.now();
+    setFocusWordId(id);
+    updateActiveWords((current) => [{
+      id, word: "", phonetic: "", part: "", status: "学习中", meaning: "", examples: [], note: "",
+      tone: tones[current.length % tones.length],
+    }, ...current]);
+  };
 
   const removeWord = (id: number) => updateActiveWords((current) => current.filter((item) => item.id !== id));
 
@@ -445,8 +449,8 @@ export default function Home() {
       <section className="collection-heading"><div><p className="eyebrow">The collection</p><h2>词语标本</h2></div><p><strong>{visibleWords.length}</strong> / {words.length} WORDS</p></section>
       <section className="card-grid" aria-label="单词卡片列表">{visibleWords.map((item, cardIndex) => <article className={`word-card ${item.tone}`} key={item.id}>
         <div className="card-topline"><span>{String(cardIndex + 1).padStart(2, "0")}</span><select aria-label={`${item.word} 的学习状态`} value={item.status} onChange={(event) => updateWord(item.id, { status: event.target.value as WordCard["status"] })}><option>学习中</option><option>待复习</option><option>已掌握</option></select><div className="card-actions"><button className="enrich-button" disabled={loadingId !== null} onClick={() => enrichWord(item.id)}>{loadingId === item.id ? "查询中…" : "自动补全"}</button><button className="delete-button" aria-label={`删除 ${item.word}`} onClick={() => removeWord(item.id)}>×</button></div></div>
-        <div className="word-title"><EditableText value={item.word} label="英文单词" className="word-input" onChange={(word) => updateWord(item.id, { word })} onBlur={() => { if (item.phonetic === "/phonetic/" || item.meaning === "在这里填写中文释义") enrichWord(item.id); }} /><EditableText value={item.phonetic} label={`${item.word} 的音标`} className="phonetic-input" onChange={(phonetic) => updateWord(item.id, { phonetic })} /></div>
-        <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word} 的词性`} className="part-input" onChange={(part) => updateWord(item.id, { part })} /><EditableText multiline value={item.meaning} label={`${item.word} 的释义`} className="meaning-input" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>
+        <div className="word-title"><EditableText value={item.word} label="英文单词" className="word-input" placeholder="输入英文单词" autoFocus={focusWordId === item.id} onFocus={() => setFocusWordId(null)} onChange={(word) => updateWord(item.id, { word })} onBlur={() => { if (!item.phonetic || !item.meaning) enrichWord(item.id); }} /><EditableText value={item.phonetic} label={`${item.word || "单词"} 的音标`} className="phonetic-input" placeholder="音标" onChange={(phonetic) => updateWord(item.id, { phonetic })} /></div>
+        <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word || "单词"} 的词性`} className="part-input" placeholder="词性" onChange={(part) => updateWord(item.id, { part })} /><EditableText multiline value={item.meaning} label={`${item.word || "单词"} 的释义`} className="meaning-input" placeholder="中文释义" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>
         <div className={`details-grid examples-only ${item.examples.length === 0 ? "empty-examples" : ""}`}><div>
           {item.examples.length > 0 && <><span className="section-label">Examples</span><ol>{item.examples.map((example, index) => <li key={index}><span>{index + 1}.</span><EditableText multiline value={example} label="英文例句" onChange={(value) => updateExample(item.id, index, value)} /></li>)}</ol></>}
           <button className="add-example-button" onClick={() => addExample(item.id)}>＋ 添加例句</button>
