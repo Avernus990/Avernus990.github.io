@@ -191,7 +191,8 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .note-block > span { padding-top: 2px; color: color-mix(in srgb, var(--accent) 65%, #536159); font-size: 7px; font-weight: 800; letter-spacing: .18em; }
 .note-block textarea { width: 100%; min-height: 104px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); outline: 0; resize: vertical; background: rgba(255,255,255,.55); color: #56635b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; line-height: 1.6; }
 .markdown-note { min-width: 0; }
-.markdown-toggle { display: block; margin: -2px 0 7px auto; padding: 3px 7px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--accent) 15%, transparent); color: #68756d; font-size: 8px; letter-spacing: .05em; }
+.markdown-preview-trigger { display: block; width: 100%; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 3px; background: transparent; text-align: left; cursor: text; transition: background .18s ease, box-shadow .18s ease; }
+.markdown-preview-trigger:hover, .markdown-preview-trigger:focus-visible { outline: 0; background: rgba(255,255,255,.5); box-shadow: 0 0 0 3px rgba(137,155,139,.08); }
 .markdown-preview { min-height: 32px; color: #5c6961; font-size: 11.5px; line-height: 1.62; }
 .markdown-preview p { margin: 0 0 5px; }
 .markdown-preview h3, .markdown-preview h4, .markdown-preview h5 { margin: 0 0 6px; font-family: Georgia, "Songti SC", serif; color: #45534b; font-weight: 600; }

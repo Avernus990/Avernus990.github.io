@@ -77,9 +77,24 @@ function MarkdownPreview({ content }: { content: string }) {
 
 function MarkdownNote({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {
   const [editing, setEditing] = useState(() => !value.trim());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const focusOnEditRef = useRef(false);
+
+  useEffect(() => {
+    if (!editing || !focusOnEditRef.current) return;
+    textareaRef.current?.focus();
+    focusOnEditRef.current = false;
+  }, [editing]);
+
+  const beginEditing = () => {
+    focusOnEditRef.current = true;
+    setEditing(true);
+  };
+
   return <div className="markdown-note">
-    <button type="button" className="markdown-toggle" onClick={() => setEditing((current) => !current)}>{editing ? "完成并预览" : "编辑 Markdown"}</button>
-    {editing ? <textarea aria-label={label} value={value} rows={5} onChange={(event) => onChange(event.target.value)} /> : <MarkdownPreview content={value} />}
+    {editing
+      ? <textarea ref={textareaRef} aria-label={label} value={value} rows={5} placeholder="输入 Markdown 笔记，点击其他地方自动预览" onChange={(event) => onChange(event.target.value)} onBlur={() => setEditing(false)} />
+      : <button type="button" className="markdown-preview-trigger" aria-label={`编辑${label}`} onClick={beginEditing}><MarkdownPreview content={value} /></button>}
   </div>;
 }
 
