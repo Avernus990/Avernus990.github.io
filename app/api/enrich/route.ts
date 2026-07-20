@@ -17,8 +17,9 @@ type GeminiResult = {
 };
 
 type GeminiPayload = {
-  candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> };
+  steps?: Array<{
+    type?: string;
+    content?: Array<{ type?: string; text?: string }>;
   }>;
   error?: { message?: string };
 };
@@ -56,8 +57,14 @@ async function fetchDictionary(word: string) {
 }
 
 async function enrichWithGemini(word: string, apiKey: string) {
+  const prompt = [
+    `English word: ${word}`,
+    "Return its standard IPA pronunciation, its most common part of speech in lowercase English,",
+    "and 1 to 3 concise Simplified Chinese meanings ordered by frequency.",
+    "Meanings must contain Chinese, with no numbering, no part of speech, and no English definition.",
+  ].join("\n");
   const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/interactions",
     {
       method: "POST",
       headers: {
@@ -66,45 +73,52 @@ async function enrichWithGemini(word: string, apiKey: string) {
       },
       signal: AbortSignal.timeout(12000),
       body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{
-            text: [
-              `English word: ${word}`,
-              "Return its standard IPA pronunciation, its most common part of speech in lowercase English,",
-              "and 1 to 3 concise Simplified Chinese meanings ordered by frequency.",
-              "Meanings must contain Chinese, with no numbering, no part of speech, and no English definition.",
-            ].join("\n"),
-          }],
-        }],
+        model: "gemini-2.5-flash-lite",
+        input: prompt,
+        store: false,
         generation_config: {
           temperature: 0.1,
           max_output_tokens: 220,
-          response_mime_type: "application/json",
-          response_schema: {
-            type: "OBJECT",
+        },
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: {
+            type: "object",
             properties: {
-              phonetic: { type: "STRING", description: "Standard IPA pronunciation wrapped in slashes." },
-              part: { type: "STRING", description: "Most common English part of speech, lowercase." },
+              phonetic: { type: "string", description: "Standard IPA pronunciation wrapped in slashes." },
+              part: { type: "string", description: "Most common English part of speech, lowercase." },
               meanings: {
-                type: "ARRAY",
-                items: { type: "STRING", description: "A concise Simplified Chinese meaning." },
+                type: "array",
+                minItems: 1,
+                maxItems: 3,
+                items: { type: "string", description: "A concise Simplified Chinese meaning." },
               },
             },
             required: ["phonetic", "part", "meanings"],
+            additionalProperties: false,
           },
         },
       }),
     },
   );
 
-  const payload = await response.json() as GeminiPayload;
+  const responseText = await response.text();
+  let payload: GeminiPayload;
+  try {
+    payload = JSON.parse(responseText) as GeminiPayload;
+  } catch {
+    throw new GeminiApiError("Gemini returned an unreadable response", response.status || 502);
+  }
   if (!response.ok) {
     throw new GeminiApiError(payload.error?.message || "Gemini request failed", response.status);
   }
 
-  const text = payload.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text ?? "")
+  const text = payload.steps
+    ?.filter((step) => step.type === "model_output")
+    .flatMap((step) => step.content ?? [])
+    .filter((content) => content.type === "text")
+    .map((content) => content.text ?? "")
     .join("")
     .trim();
   if (!text) throw new Error("Gemini returned no content");
