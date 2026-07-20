@@ -23,6 +23,16 @@ type GeminiPayload = {
   error?: { message?: string };
 };
 
+class GeminiApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "GeminiApiError";
+  }
+}
+
 const containsChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 
 function formatPhonetic(value: string) {
@@ -67,20 +77,18 @@ async function enrichWithGemini(word: string, apiKey: string) {
             ].join("\n"),
           }],
         }],
-        generationConfig: {
+        generation_config: {
           temperature: 0.1,
-          maxOutputTokens: 220,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "object",
+          max_output_tokens: 220,
+          response_mime_type: "application/json",
+          response_schema: {
+            type: "OBJECT",
             properties: {
-              phonetic: { type: "string", description: "Standard IPA pronunciation wrapped in slashes." },
-              part: { type: "string", description: "Most common English part of speech, lowercase." },
+              phonetic: { type: "STRING", description: "Standard IPA pronunciation wrapped in slashes." },
+              part: { type: "STRING", description: "Most common English part of speech, lowercase." },
               meanings: {
-                type: "array",
-                minItems: 1,
-                maxItems: 3,
-                items: { type: "string", description: "A concise Simplified Chinese meaning." },
+                type: "ARRAY",
+                items: { type: "STRING", description: "A concise Simplified Chinese meaning." },
               },
             },
             required: ["phonetic", "part", "meanings"],
@@ -91,7 +99,9 @@ async function enrichWithGemini(word: string, apiKey: string) {
   );
 
   const payload = await response.json() as GeminiPayload;
-  if (!response.ok) throw new Error(payload.error?.message || "Gemini request failed");
+  if (!response.ok) {
+    throw new GeminiApiError(payload.error?.message || "Gemini request failed", response.status);
+  }
 
   const text = payload.candidates?.[0]?.content?.parts
     ?.map((part) => part.text ?? "")
@@ -148,7 +158,21 @@ export async function GET(request: NextRequest) {
       translationAvailable: true,
       source: "Gemini 2.5 Flash-Lite + Free Dictionary API",
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof GeminiApiError) {
+      if (error.status === 401 || error.status === 403) {
+        return NextResponse.json({ error: "Gemini 密钥无效或没有访问权限" }, { status: 502 });
+      }
+      if (error.status === 429) {
+        return NextResponse.json({ error: "Gemini 免费额度暂时已用完，请稍后再试" }, { status: 429 });
+      }
+      if (error.status === 400) {
+        return NextResponse.json({ error: "Gemini 请求格式不受支持" }, { status: 502 });
+      }
+    }
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return NextResponse.json({ error: "Gemini 响应超时，请稍后再试" }, { status: 504 });
+    }
     return NextResponse.json({ error: "智能补全暂时不可用，请稍后再试" }, { status: 502 });
   }
 }
