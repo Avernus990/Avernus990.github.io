@@ -60,9 +60,10 @@ function EditableText({ value, onChange, className = "", multiline = false, labe
 function MarkdownEditableText({ value, onChange, className = "", label, placeholder }: {
   value: string; onChange: (value: string) => void; className?: string; label: string; placeholder?: string;
 }) {
-  const [editing, setEditing] = useState(() => !value.trim());
+  const [editing, setEditing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previousValueRef = useRef(value);
+  const focusOnEditRef = useRef(false);
 
   useEffect(() => {
     if (value !== previousValueRef.current && document.activeElement !== textareaRef.current) {
@@ -73,14 +74,20 @@ function MarkdownEditableText({ value, onChange, className = "", label, placehol
 
   useEffect(() => {
     if (!editing || !textareaRef.current) return;
-    textareaRef.current.focus();
+    if (focusOnEditRef.current) textareaRef.current.focus();
+    focusOnEditRef.current = false;
     textareaRef.current.style.height = "auto";
     textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
   }, [editing, value]);
 
+  const beginEditing = () => {
+    focusOnEditRef.current = true;
+    setEditing(true);
+  };
+
   return editing
     ? <textarea ref={textareaRef} aria-label={label} className={`editable ${className}`} value={value} rows={2} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} onBlur={() => setEditing(false)} />
-    : <button type="button" className={`inline-markdown-preview ${className}`} aria-label={`编辑${label}`} onClick={() => setEditing(true)}>{value.split("\n").map((line, index) => <span className="inline-markdown-line" key={index}>{renderInlineMarkdown(line)}</span>)}</button>;
+    : <button type="button" className={`inline-markdown-preview ${className} ${value.trim() ? "" : "is-empty"}`} aria-label={`编辑${label}`} onClick={beginEditing}>{value.trim() ? value.split("\n").map((line, index) => <span className="inline-markdown-line" key={index}>{renderInlineMarkdown(line)}</span>) : <span className="inline-empty-placeholder">{placeholder || "点击输入内容"}</span>}</button>;
 }
 
 function renderInlineMarkdown(text: string): ReactNode[] {
@@ -125,6 +132,36 @@ function MarkdownNote({ value, onChange, label }: { value: string; onChange: (va
     {editing
       ? <textarea ref={textareaRef} aria-label={label} value={value} rows={5} placeholder="输入 Markdown 笔记，点击其他地方自动预览" onChange={(event) => onChange(event.target.value)} onBlur={() => setEditing(false)} />
       : <button type="button" className={`markdown-preview-trigger ${value.trim() ? "" : "is-empty"}`} aria-label={`编辑${label}`} onClick={beginEditing}>{value.trim() ? <MarkdownPreview content={value} /> : <span className="markdown-empty-placeholder">点击添加 Markdown 笔记</span>}</button>}
+  </div>;
+}
+
+const statusStyles: Record<WordCard["status"], string> = { "学习中": "learning", "待复习": "reviewing", "已掌握": "mastered" };
+
+function StatusPicker({ value, onChange, label }: { value: WordCard["status"]; onChange: (value: WordCard["status"]) => void; label: string }) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [open]);
+
+  return <div className={`status-picker status-${statusStyles[value]}`} ref={pickerRef}>
+    <button type="button" className="status-trigger" aria-label={label} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)}><i /><span>{value}</span><b aria-hidden="true">⌄</b></button>
+    {open && <div className="status-menu" role="listbox" aria-label={label}>
+      {statuses.slice(1).map((status) => <button type="button" role="option" aria-selected={status === value} className={`status-option status-${statusStyles[status as WordCard["status"]]} ${status === value ? "active" : ""}`} key={status} onClick={() => { onChange(status as WordCard["status"]); setOpen(false); }}><i /><span>{status}</span>{status === value && <b>✓</b>}</button>)}
+    </div>}
   </div>;
 }
 
@@ -265,7 +302,14 @@ export default function Home() {
   useEffect(() => {
     if (viewMode !== "page") return;
     setFocusWordId(null);
-    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+    const frame = window.requestAnimationFrame(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      const root = document.documentElement;
+      const previousBehavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = "auto";
+      window.scrollTo(0, 0);
+      window.requestAnimationFrame(() => { root.style.scrollBehavior = previousBehavior; });
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [activePageId, viewMode]);
 
@@ -614,7 +658,7 @@ export default function Home() {
       </> : <>
       <section className="collection-heading"><div><p className="eyebrow">The collection</p><h2>词语标本</h2></div><p><strong>{visibleWords.length}</strong> / {words.length} WORDS</p></section>
       <section className="card-grid" aria-label="单词卡片列表">{visibleWords.map((item, cardIndex) => <article className={`word-card ${item.tone}`} key={`${activePageId}-${item.id}`}>
-        <div className="card-topline"><span>{String(cardIndex + 1).padStart(2, "0")}</span><select aria-label={`${item.word} 的学习状态`} value={item.status} onChange={(event) => updateWord(item.id, { status: event.target.value as WordCard["status"] })}><option>学习中</option><option>待复习</option><option>已掌握</option></select><div className="card-actions"><button className="enrich-button" disabled={loadingId !== null} onClick={() => enrichWord(item.id)}>{loadingId === item.id ? "查询中…" : "自动补全"}</button><button className="delete-button" aria-label={`删除 ${item.word}`} onClick={() => removeWord(item.id)}>×</button></div></div>
+        <div className="card-topline"><span>{String(cardIndex + 1).padStart(2, "0")}</span><StatusPicker label={`${item.word || "词条"} 的学习状态`} value={item.status} onChange={(status) => updateWord(item.id, { status })} /><div className="card-actions"><button className="enrich-button" disabled={loadingId !== null} onClick={() => enrichWord(item.id)}>{loadingId === item.id ? "查询中…" : "自动补全"}</button><button className="delete-button" aria-label={`删除 ${item.word}`} onClick={() => removeWord(item.id)}>×</button></div></div>
         <div className="word-title"><EditableText value={item.word} label="英文单词" className="word-input" placeholder="输入英文单词" autoFocus={focusWordId === item.id} onFocus={() => setFocusWordId(null)} onChange={(word) => updateWord(item.id, { word })} onBlur={() => handleWordBlur(item)} /><EditableText value={item.phonetic} label={`${item.word || "单词"} 的音标`} className="phonetic-input" placeholder="音标" onChange={(phonetic) => updateWord(item.id, { phonetic })} /></div>
         <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word || "词条"} 的${item.word.trim().includes(" ") ? "短语类型" : "词性"}`} className="part-input" placeholder={item.word.trim().includes(" ") ? "短语类型" : "词性"} onChange={(part) => updateWord(item.id, { part })} /><MarkdownEditableText value={item.meaning} label={`${item.word || "单词"} 的释义`} className="meaning-input" placeholder="中文释义" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>
         <div className={`details-grid examples-only ${item.examples.length === 0 ? "empty-examples" : ""}`}><div>
