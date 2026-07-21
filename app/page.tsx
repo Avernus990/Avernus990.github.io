@@ -133,12 +133,13 @@ function PdfExportStage({ page }: { page: WordPage }) {
       <h2>{page.name}</h2>
       <span>{page.words.length} WORDS · WORD GARDEN</span>
     </header>
-    {page.words.map((item, index) => <article className={`pdf-word-card ${item.tone}`} data-pdf-card key={item.id}>
-      <div className="pdf-card-top"><span>{String(index + 1).padStart(2, "0")}</span><b>{item.status}</b></div>
-      <h3>{item.word}</h3><p className="pdf-phonetic">{item.phonetic}</p>
-      <div className="pdf-section"><small>MEANING</small><div className="pdf-meaning-row"><p className="pdf-part">{item.part}</p><div className="pdf-meaning">{item.meaning.split("\n").map((line, lineIndex) => <p key={lineIndex}>{renderInlineMarkdown(line)}</p>)}</div></div></div>
-      {item.examples.some(Boolean) && <div className="pdf-section"><small>EXAMPLES</small><ol>{item.examples.filter(Boolean).map((example, exampleIndex) => <li key={exampleIndex}><span>{exampleIndex + 1}.</span><p>{renderInlineMarkdown(example)}</p></li>)}</ol></div>}
-      <div className="pdf-note"><small>NOTE · MD</small><MarkdownPreview content={item.note} /></div>
+    <div className="pdf-table-head" data-pdf-columns><span>词汇</span><span>类型 / 词性</span><span>中文释义</span><span>例句</span><span>NOTE</span></div>
+    {page.words.map((item, index) => <article className={`pdf-table-row ${item.tone}`} data-pdf-card key={item.id}>
+      <div className="pdf-word-cell"><small>{String(index + 1).padStart(2, "0")}</small><h3>{item.word || "未命名词条"}</h3>{item.phonetic && <p>{item.phonetic}</p>}</div>
+      <div className="pdf-part-cell">{item.part || (item.word.trim().includes(" ") ? "phrase" : "—")}</div>
+      <div className="pdf-meaning-cell">{item.meaning ? item.meaning.split("\n").map((line, lineIndex) => <p key={lineIndex}>{renderInlineMarkdown(line)}</p>) : "—"}</div>
+      <ol className="pdf-examples-cell">{item.examples.filter(Boolean).map((example, exampleIndex) => <li key={exampleIndex}><span>{exampleIndex + 1}.</span><p>{renderInlineMarkdown(example)}</p></li>)}{!item.examples.some(Boolean) && <li>—</li>}</ol>
+      <div className="pdf-note-cell">{item.note ? <MarkdownPreview content={item.note} /> : "—"}</div>
     </article>)}
     {page.words.length === 0 && <div className="pdf-empty" data-pdf-card>这一页还没有单词。</div>}
   </section>;
@@ -366,7 +367,7 @@ export default function Home() {
       const stage = document.getElementById("pdf-export-stage");
       if (!stage) throw new Error("未找到 PDF 内容");
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
-      const pageWidth = 210, pageHeight = 297, margin = 14, contentWidth = pageWidth - margin * 2, gap = 6;
+      const pageWidth = 210, pageHeight = 297, margin = 12, contentWidth = pageWidth - margin * 2, gap = 1.5;
       let cursorY = margin;
       const header = stage.querySelector<HTMLElement>("[data-pdf-header]");
       if (header) {
@@ -376,14 +377,30 @@ export default function Home() {
         cursorY += height + 8;
       }
 
+      const columns = stage.querySelector<HTMLElement>("[data-pdf-columns]");
+      let columnsCanvas: HTMLCanvasElement | null = null;
+      let columnsHeight = 0;
+      if (columns) {
+        columnsCanvas = await html2canvas(columns, { scale: 1.5, backgroundColor: "#e9eee9", logging: false });
+        columnsHeight = columnsCanvas.height * contentWidth / columnsCanvas.width;
+        pdf.addImage(columnsCanvas.toDataURL("image/jpeg", .94), "JPEG", margin, cursorY, contentWidth, columnsHeight, undefined, "FAST");
+        cursorY += columnsHeight;
+      }
+
       const cards = Array.from(stage.querySelectorAll<HTMLElement>("[data-pdf-card]"));
       for (const card of cards) {
         const canvas = await html2canvas(card, { scale: 1.5, backgroundColor: "#fbfaf5", logging: false });
         let width = contentWidth;
         let height = canvas.height * width / canvas.width;
-        const maxHeight = pageHeight - margin * 2;
+        const maxHeight = pageHeight - margin * 2 - columnsHeight;
         if (height > maxHeight) { height = maxHeight; width = canvas.width * height / canvas.height; }
-        if (cursorY + height > pageHeight - margin) { pdf.addPage(); cursorY = margin; }
+        if (cursorY + height > pageHeight - margin) {
+          pdf.addPage(); cursorY = margin;
+          if (columnsCanvas) {
+            pdf.addImage(columnsCanvas.toDataURL("image/jpeg", .94), "JPEG", margin, cursorY, contentWidth, columnsHeight, undefined, "FAST");
+            cursorY += columnsHeight;
+          }
+        }
         pdf.addImage(canvas.toDataURL("image/jpeg", .94), "JPEG", margin + (contentWidth - width) / 2, cursorY, width, height, undefined, "FAST");
         cursorY += height + gap;
       }

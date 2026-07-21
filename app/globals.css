@@ -279,29 +279,33 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
 .pdf-export-header h1 { margin: 0; color: #27362f; font-family: Georgia, "Songti SC", serif; font-size: 34px; letter-spacing: -.03em; }
 .pdf-export-header h2 { margin: 8px 0 12px; color: #6f7e75; font-family: Georgia, "Songti SC", serif; font-size: 18px; font-weight: 400; }
 .pdf-export-header span { color: #8b948e; font-size: 8px; letter-spacing: .18em; }
-.pdf-word-card { --pdf-accent: #afa6c7; width: 720px; margin-top: 12px; padding: 19px 27px 21px; background: #fbfaf5; border: 1px solid #d8ddd8; border-top: 4px solid var(--pdf-accent); }
-.pdf-word-card.water { --pdf-accent: #92b8be; }
-.pdf-word-card.peach { --pdf-accent: #d6a697; }
-.pdf-word-card.sage { --pdf-accent: #9cae9e; }
-.pdf-card-top { display: flex; justify-content: space-between; align-items: center; color: #87918a; font-size: 9px; }
-.pdf-card-top b { padding: 4px 9px; border-radius: 999px; background: #eef0eb; color: #66746b; font-size: 8px; font-weight: 500; }
-.pdf-word-card > h3 { margin: 12px 0 2px; color: #27362f; font-family: Georgia, serif; font-size: 33px; font-weight: 400; letter-spacing: -.03em; }
-.pdf-phonetic { margin: 0; color: #748078; font-family: Georgia, serif; font-size: 11px; }
-.pdf-part { margin: 3px 0 0; color: #748078; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .15em; }
-.pdf-section { padding: 11px 0 9px; border-top: 1px solid #dde1dd; }
-.pdf-section small, .pdf-note > small { display: block; margin-bottom: 5px; color: #8b958e; font-size: 7px; font-weight: 700; letter-spacing: .18em; }
-.pdf-meaning-row { display: grid; grid-template-columns: minmax(50px, auto) 1fr; gap: 10px; align-items: start; }
-.pdf-meaning { margin: 0; white-space: pre-line; color: #39483f; font-family: Georgia, "Songti SC", serif; font-size: 12.5px; line-height: 1.55; }
-.pdf-section ol { margin: 0; padding: 0; list-style: none; }
-.pdf-section li { display: grid; grid-template-columns: 17px 1fr; gap: 3px; margin: 4px 0; color: #56635b; font-family: Georgia, serif; font-size: 10.5px; line-height: 1.4; }
-.pdf-section li span { color: var(--pdf-accent); }
-.pdf-note { padding: 10px 13px; background: #f1f2ed; border-left: 3px solid var(--pdf-accent); }
-.pdf-note .markdown-preview { color: #56635b; font-size: 9.5px; line-height: 1.45; }
-.pdf-meaning p, .pdf-section li p { margin: 0; }
-.pdf-note .markdown-preview p { margin-bottom: 3px; }
-.pdf-note .markdown-preview h3 { font-size: 11px; }
-.pdf-note .markdown-preview h4 { font-size: 10px; }
-.pdf-note .markdown-preview h5 { font-size: 9px; }
+.pdf-table-head, .pdf-table-row { width: 720px; display: grid; grid-template-columns: 16% 10% 27% 27% 20%; }
+.pdf-table-head { background: #e9eee9; border: 1px solid #d2dad3; border-bottom: 0; }
+.pdf-table-head span { padding: 9px 11px; border-right: 1px solid #d2dad3; color: #758279; font-size: 7px; font-weight: 700; letter-spacing: .12em; }
+.pdf-table-head span:last-child { border-right: 0; }
+.pdf-table-row { --pdf-accent: #afa6c7; min-height: 92px; background: #fbfaf5; border: 1px solid #d8ddd8; border-left: 4px solid var(--pdf-accent); }
+.pdf-table-row.water { --pdf-accent: #92b8be; }
+.pdf-table-row.peach { --pdf-accent: #d6a697; }
+.pdf-table-row.sage { --pdf-accent: #9cae9e; }
+.pdf-table-row > * { min-width: 0; padding: 13px 11px; border-right: 1px solid #e0e4e0; overflow-wrap: anywhere; }
+.pdf-table-row > *:last-child { border-right: 0; }
+.pdf-word-cell small { display: block; margin-bottom: 6px; color: var(--pdf-accent); font-family: Georgia, serif; font-size: 8px; font-style: italic; }
+.pdf-word-cell h3 { margin: 0 0 5px; color: #2f4137; font-family: Georgia, serif; font-size: 17px; font-weight: 500; line-height: 1.12; }
+.pdf-word-cell p { margin: 0; color: #7a867e; font-family: Georgia, serif; font-size: 8px; line-height: 1.4; }
+.pdf-part-cell { color: #718078; font-size: 7.5px; font-weight: 700; letter-spacing: .07em; line-height: 1.5; text-transform: uppercase; }
+.pdf-meaning-cell { color: #39483f; font-family: Georgia, "Songti SC", serif; font-size: 9.5px; line-height: 1.48; }
+.pdf-meaning-cell p { margin: 0 0 3px; }
+.pdf-meaning-cell strong, .pdf-examples-cell strong { color: #2f4337; font-weight: 700; }
+.pdf-examples-cell { color: #56635b; font-family: Georgia, serif; font-size: 8.5px; line-height: 1.45; }
+.pdf-examples-cell li { display: grid; grid-template-columns: 12px 1fr; gap: 2px; margin: 0 0 5px; }
+.pdf-examples-cell li > span { color: var(--pdf-accent); }
+.pdf-examples-cell p { margin: 0; }
+.pdf-note-cell { color: #59665e; font-size: 8px; line-height: 1.45; }
+.pdf-note-cell .markdown-preview { min-height: 0; color: inherit; font-size: inherit; line-height: inherit; }
+.pdf-note-cell .markdown-preview p { margin-bottom: 3px; }
+.pdf-note-cell .markdown-preview h3 { font-size: 10px; }
+.pdf-note-cell .markdown-preview h4 { font-size: 9px; }
+.pdf-note-cell .markdown-preview h5 { font-size: 8px; }
 .pdf-empty { width: 720px; margin-top: 18px; padding: 80px 20px; border: 1px solid #d8ddd8; background: #fbfaf5; color: #7d8880; text-align: center; font-family: Georgia, "Songti SC", serif; font-size: 15px; }
 
 @media (max-width: 980px) {
