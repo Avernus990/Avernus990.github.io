@@ -70,14 +70,17 @@ async function fetchDictionary(word: string) {
 }
 
 async function enrichWithGemini(word: string, apiKey: string) {
+  const isPhrase = /\s/.test(word.trim());
   const prompt = [
-    `English word: ${word}`,
+    `English ${isPhrase ? "phrase" : "word"}: ${word}`,
     "Return its standard IPA pronunciation and 1 to 5 common meanings ordered by frequency.",
-    "For every meaning, include that meaning's lowercase English part of speech and a concise Simplified Chinese translation.",
-    "Include different common parts of speech when the word has them. Do not add numbering or English definitions.",
+    isPhrase
+      ? "For every meaning, include a precise lowercase phrase type (phrasal verb, idiom, fixed phrase, collocation, prepositional phrase, or expression) and a concise Simplified Chinese translation. Do not use a plain word class when a phrase type applies."
+      : "For every meaning, include that meaning's lowercase English part of speech and a concise Simplified Chinese translation.",
+    `Include different common ${isPhrase ? "phrase types" : "parts of speech"} when applicable. Do not add numbering or English definitions.`,
     "Mark only the one or two most common everyday meanings with common: true.",
     `Also write one natural English example sentence that uses the exact spelling "${word}".`,
-    'Reply with JSON only in this exact shape: {"phonetic":"/.../","meanings":[{"part":"noun","meaning":"中文释义","common":true},{"part":"verb","meaning":"中文释义","common":false}],"example":"One natural sentence."}',
+    `Reply with JSON only in this exact shape: {"phonetic":"/.../","meanings":[{"part":"${isPhrase ? "phrasal verb" : "noun"}","meaning":"中文释义","common":true}],"example":"One natural sentence."}`,
   ].join("\n");
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/interactions",

@@ -22,8 +22,17 @@ export async function GET(request: Request) {
       .bind("default")
       .first<{ content: string; updated_at: string }>();
 
+    const stored = row ? JSON.parse(row.content) as unknown : null;
+    const notebook = Array.isArray(stored)
+      ? { pages: stored, activePageId: null, viewMode: "page" }
+      : stored && typeof stored === "object"
+        ? stored as { pages?: unknown; activePageId?: unknown; viewMode?: unknown }
+        : null;
+
     return Response.json({
-      pages: row ? JSON.parse(row.content) : null,
+      pages: Array.isArray(notebook?.pages) ? notebook.pages : null,
+      activePageId: typeof notebook?.activePageId === "string" ? notebook.activePageId : null,
+      viewMode: notebook?.viewMode === "all" ? "all" : "page",
       updatedAt: row?.updated_at ?? null,
     });
   } catch (error) {
@@ -37,12 +46,14 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   try {
     if (!(await requestHasAccess(request))) return unauthorizedResponse();
-    const body = await request.json() as { pages?: unknown };
+    const body = await request.json() as { pages?: unknown; activePageId?: unknown; viewMode?: unknown };
     if (!Array.isArray(body.pages)) {
       return Response.json({ error: "词汇页数据格式不正确" }, { status: 400 });
     }
 
-    const content = JSON.stringify(body.pages);
+    const activePageId = typeof body.activePageId === "string" ? body.activePageId : null;
+    const viewMode = body.viewMode === "all" ? "all" : "page";
+    const content = JSON.stringify({ pages: body.pages, activePageId, viewMode });
     if (content.length > 2_000_000) {
       return Response.json({ error: "词汇本数据过大" }, { status: 413 });
     }

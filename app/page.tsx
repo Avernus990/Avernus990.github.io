@@ -15,6 +15,7 @@ type WordCard = {
 };
 
 type WordPage = { id: string; name: string; words: WordCard[] };
+type ViewMode = "page" | "all";
 
 type SaveFileHandle = {
   createWritable: () => Promise<{ write: (blob: Blob) => Promise<void>; close: () => Promise<void> }>;
@@ -146,6 +147,7 @@ function PdfExportStage({ page }: { page: WordPage }) {
 export default function Home() {
   const [pages, setPages] = useState<WordPage[]>(starterPages);
   const [activePageId, setActivePageId] = useState(starterPages[0].id);
+  const [viewMode, setViewMode] = useState<ViewMode>("page");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof statuses)[number]>("全部");
   const [ready, setReady] = useState(false);
@@ -163,6 +165,7 @@ export default function Home() {
   const activePage = pages.find((page) => page.id === activePageId) ?? pages[0];
   const activePageIndex = Math.max(0, pages.findIndex((page) => page.id === activePageId));
   const words = activePage?.words ?? [];
+  const allWordEntries = useMemo(() => pages.flatMap((page) => page.words.map((word) => ({ pageId: page.id, pageName: page.name, word }))), [pages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,12 +197,13 @@ export default function Home() {
     const restorePages = async () => {
       try {
         const response = await fetch("/api/notebook", { cache: "no-store" });
-        const data = await response.json() as { pages?: WordPage[] | null; error?: string };
+        const data = await response.json() as { pages?: WordPage[] | null; activePageId?: string | null; viewMode?: ViewMode; error?: string };
         if (!response.ok) throw new Error(data.error || "读取网站数据库失败");
         if (cancelled) return;
         if (data.pages?.length) {
           setPages(data.pages);
-          setActivePageId(data.pages[0].id);
+          setActivePageId(data.activePageId && data.pages.some((page) => page.id === data.activePageId) ? data.activePageId : data.pages[0].id);
+          setViewMode(data.viewMode === "all" ? "all" : "page");
         } else {
           const savedPages = window.localStorage.getItem("monet-word-garden-pages");
           let pagesToMigrate = starterPages;
@@ -215,7 +219,7 @@ export default function Home() {
           }
           setPages(pagesToMigrate);
           setActivePageId(pagesToMigrate[0].id);
-          const migrationResponse = await fetch("/api/notebook", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pages: pagesToMigrate }) });
+          const migrationResponse = await fetch("/api/notebook", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pages: pagesToMigrate, activePageId: pagesToMigrate[0].id, viewMode: "page" }) });
           if (!migrationResponse.ok) throw new Error("现有数据迁移到后端失败");
           window.localStorage.removeItem("monet-word-garden-pages");
           window.localStorage.removeItem("monet-word-garden");
@@ -240,7 +244,7 @@ export default function Home() {
     if (!ready || accessState !== "unlocked") return;
     setSaveState("保存中");
     const timeout = window.setTimeout(() => {
-      void fetch("/api/notebook", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pages }) })
+      void fetch("/api/notebook", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pages, activePageId, viewMode }) })
         .then(async (response) => {
           if (!response.ok) {
             const data = await response.json() as { error?: string };
@@ -255,12 +259,17 @@ export default function Home() {
         });
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [pages, ready, accessState]);
+  }, [pages, activePageId, viewMode, ready, accessState]);
 
   const visibleWords = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return words.filter((item) => (filter === "全部" || item.status === filter) && (!keyword || `${item.word} ${item.meaning} ${item.note}`.toLowerCase().includes(keyword)));
   }, [words, query, filter]);
+
+  const visibleGlobalWords = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    return allWordEntries.filter(({ pageName, word }) => (filter === "全部" || word.status === filter) && (!keyword || `${word.word} ${word.part} ${word.meaning} ${word.note} ${pageName}`.toLowerCase().includes(keyword)));
+  }, [allWordEntries, query, filter]);
 
   const updateActiveWords = (updater: (current: WordCard[]) => WordCard[]) => {
     setPages((current) => current.map((page) => page.id === activePageId ? { ...page, words: updater(page.words) } : page));
@@ -273,6 +282,8 @@ export default function Home() {
     const examples = [...item.examples]; examples[index] = value; return { ...item, examples };
   }));
 
+  const removeExample = (id: number, index: number) => updateActiveWords((current) => current.map((item) => item.id === id ? { ...item, examples: item.examples.filter((_, exampleIndex) => exampleIndex !== index) } : item));
+
   const addWord = () => {
     const id = Date.now();
     setFocusWordId(id);
@@ -284,13 +295,13 @@ export default function Home() {
 
   const removeWord = (id: number) => updateActiveWords((current) => current.filter((item) => item.id !== id));
 
-  const addExample = (id: number) => updateActiveWords((current) => current.map((item) => item.id === id ? { ...item, examples: [...item.examples, "Write an example sentence here."] } : item));
+  const addExample = (id: number) => updateActiveWords((current) => current.map((item) => item.id === id ? { ...item, examples: [...item.examples, ""] } : item));
 
   const addPage = () => {
     const id = `page-${Date.now()}`;
     const nextPage = { id, name: `新词页 ${pages.length + 1}`, words: [] };
     setPages((current) => [...current, nextPage]);
-    setActivePageId(id); setQuery(""); setFilter("全部");
+    setActivePageId(id); setViewMode("page"); setQuery(""); setFilter("全部");
   };
 
   const renamePage = (name: string) => setPages((current) => current.map((page) => page.id === activePageId ? { ...page, name } : page));
@@ -450,18 +461,25 @@ export default function Home() {
         <div className="page-picker" ref={pageMenuRef}>
           <span className="page-picker-label">选择词汇页</span>
           <button className="page-picker-trigger" aria-haspopup="listbox" aria-expanded={pageMenuOpen} onClick={() => setPageMenuOpen((current) => !current)}>
-            <span className="page-picker-number">{String(activePageIndex + 1).padStart(2, "0")}</span>
-            <span className="page-picker-current"><strong>{activePage?.name || "未命名页"}</strong><small>{words.length} 个单词 · 点击切换页面</small></span>
+            <span className="page-picker-number">{viewMode === "all" ? "∑" : String(activePageIndex + 1).padStart(2, "0")}</span>
+            <span className="page-picker-current"><strong>{viewMode === "all" ? "全部词汇" : (activePage?.name || "未命名页")}</strong><small>{viewMode === "all" ? `${allWordEntries.length} 个词条 · ${pages.length} 个页面` : `${words.length} 个单词 · 点击切换页面`}</small></span>
             <span className={`page-picker-chevron ${pageMenuOpen ? "open" : ""}`} aria-hidden="true">⌄</span>
           </button>
           {pageMenuOpen && <div className="page-picker-menu" role="listbox" aria-label="选择词汇页">
             <div className="page-picker-menu-head"><span>全部页面</span><small>{pages.length} PAGES</small></div>
             <div className="page-picker-options">
-              {pages.map((page, index) => <div key={page.id} role="option" aria-selected={page.id === activePageId} className={`page-option ${page.id === activePageId ? "active" : ""}`}>
-                <button className="page-option-main" onClick={() => { setActivePageId(page.id); setQuery(""); setFilter("全部"); setPageMenuOpen(false); }}>
+              <div role="option" aria-selected={viewMode === "all"} className={`page-option global-page-option ${viewMode === "all" ? "active" : ""}`}>
+                <button className="page-option-main" onClick={() => { setViewMode("all"); setQuery(""); setFilter("全部"); setPageMenuOpen(false); }}>
+                  <span className="option-number">∑</span>
+                  <span className="option-copy"><strong>全部词汇</strong><small>{allWordEntries.length} 个词条 · 跨页面查找</small></span>
+                  <span className="option-status">{viewMode === "all" ? "当前" : "打开"}</span>
+                </button>
+              </div>
+              {pages.map((page, index) => <div key={page.id} role="option" aria-selected={viewMode === "page" && page.id === activePageId} className={`page-option ${viewMode === "page" && page.id === activePageId ? "active" : ""}`}>
+                <button className="page-option-main" onClick={() => { setActivePageId(page.id); setViewMode("page"); setQuery(""); setFilter("全部"); setPageMenuOpen(false); }}>
                   <span className="option-number">{String(index + 1).padStart(2, "0")}</span>
                   <span className="option-copy"><strong>{page.name || "未命名页"}</strong><small>{page.words.length ? `${page.words.length} 个单词` : "空白页面"}</small></span>
-                  <span className="option-status">{page.id === activePageId ? "当前" : "打开"}</span>
+                  <span className="option-status">{viewMode === "page" && page.id === activePageId ? "当前" : "打开"}</span>
                 </button>
                 <div className="page-option-actions">
                   <button disabled={index === 0} aria-label={`上移 ${page.name}`} onClick={() => movePage(page.id, -1)}>↑</button>
@@ -476,30 +494,48 @@ export default function Home() {
       </nav>
 
       <section className="page-heading">
-        <div><p className="eyebrow">CURRENT PAGE</p><input aria-label="当前页名称" value={activePage?.name ?? ""} onChange={(event) => renamePage(event.target.value)} placeholder="为这一页命名" /></div>
-        {pages.length > 1 && <button className="delete-page-button" onClick={() => deletePageById(activePageId)}>删除当前页</button>}
+        {viewMode === "all"
+          ? <div><p className="eyebrow">GLOBAL VOCABULARY</p><h2>全局词汇表</h2><small>集中查看和搜索所有页面里的词汇</small></div>
+          : <div><p className="eyebrow">CURRENT PAGE</p><input aria-label="当前页名称" value={activePage?.name ?? ""} onChange={(event) => renamePage(event.target.value)} placeholder="为这一页命名" /></div>}
+        {viewMode === "page" && pages.length > 1 && <button className="delete-page-button" onClick={() => deletePageById(activePageId)}>删除当前页</button>}
       </section>
 
       <section className="toolbar" aria-label="单词筛选工具">
-        <label className="search-box"><span aria-hidden="true">⌕</span><input type="search" placeholder="搜索当前页…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <label className="search-box"><span aria-hidden="true">⌕</span><input type="search" placeholder={viewMode === "all" ? "搜索全部页面…" : "搜索当前页…"} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <div className="filters" aria-label="按学习状态筛选">{statuses.map((status) => <button key={status} className={filter === status ? "active" : ""} onClick={() => setFilter(status)}>{status}</button>)}</div>
-        <div className="toolbar-actions"><button className="export-button" disabled={exporting} onClick={exportPdf}>{exporting ? "正在生成…" : "下载当前页 PDF"}</button><button className="add-button" onClick={addWord}><span>＋</span> 添加单词</button></div>
+        <div className="toolbar-actions">{viewMode === "all" ? <button className="add-button" onClick={() => setViewMode("page")}>返回当前页</button> : <><button className="export-button" disabled={exporting} onClick={exportPdf}>{exporting ? "正在生成…" : "下载当前页 PDF"}</button><button className="add-button" onClick={addWord}><span>＋</span> 添加单词</button></>}</div>
       </section>
       {message && <p className="api-message" role="status">{message}</p>}
 
+      {viewMode === "all" ? <>
+        <section className="collection-heading"><div><p className="eyebrow">Every word, one view</p><h2>词汇总览</h2></div><p><strong>{visibleGlobalWords.length}</strong> / {allWordEntries.length} ENTRIES</p></section>
+        <section className="global-vocabulary" aria-label="全部词汇表">
+          <div className="global-table-wrap"><table className="global-table"><thead><tr><th>词汇</th><th>类型 / 词性</th><th>中文释义</th><th>所在页面</th><th>状态</th></tr></thead><tbody>
+            {visibleGlobalWords.map(({ pageId, pageName, word }) => <tr key={`${pageId}-${word.id}`}>
+              <td><button className="global-word-button" onClick={() => { setActivePageId(pageId); setViewMode("page"); setQuery(""); setFilter("全部"); }}><strong>{word.word || "未命名词条"}</strong>{word.phonetic && <small>{word.phonetic}</small>}</button></td>
+              <td><span className="global-part">{word.part || (word.word.trim().includes(" ") ? "phrase" : "—")}</span></td>
+              <td><div className="global-meaning">{word.meaning ? word.meaning.split("\n").map((line, index) => <p key={index}>{renderInlineMarkdown(line)}</p>) : "—"}</div></td>
+              <td><button className="global-page-button" onClick={() => { setActivePageId(pageId); setViewMode("page"); setQuery(""); setFilter("全部"); }}>{pageName || "未命名页"}<span>↗</span></button></td>
+              <td><span className={`global-status status-${word.status}`}>{word.status}</span></td>
+            </tr>)}
+          </tbody></table></div>
+        </section>
+        {visibleGlobalWords.length === 0 && <div className="empty-state"><span>∿</span><p>{allWordEntries.length === 0 ? "词汇本还是空白的，先回到一个页面添加单词吧。" : "没有找到对应的词语，换个关键词试试。"}</p></div>}
+      </> : <>
       <section className="collection-heading"><div><p className="eyebrow">The collection</p><h2>词语标本</h2></div><p><strong>{visibleWords.length}</strong> / {words.length} WORDS</p></section>
       <section className="card-grid" aria-label="单词卡片列表">{visibleWords.map((item, cardIndex) => <article className={`word-card ${item.tone}`} key={item.id}>
         <div className="card-topline"><span>{String(cardIndex + 1).padStart(2, "0")}</span><select aria-label={`${item.word} 的学习状态`} value={item.status} onChange={(event) => updateWord(item.id, { status: event.target.value as WordCard["status"] })}><option>学习中</option><option>待复习</option><option>已掌握</option></select><div className="card-actions"><button className="enrich-button" disabled={loadingId !== null} onClick={() => enrichWord(item.id)}>{loadingId === item.id ? "查询中…" : "自动补全"}</button><button className="delete-button" aria-label={`删除 ${item.word}`} onClick={() => removeWord(item.id)}>×</button></div></div>
         <div className="word-title"><EditableText value={item.word} label="英文单词" className="word-input" placeholder="输入英文单词" autoFocus={focusWordId === item.id} onFocus={() => setFocusWordId(null)} onChange={(word) => updateWord(item.id, { word })} onBlur={() => { if (!item.phonetic || !item.meaning) enrichWord(item.id); }} /><EditableText value={item.phonetic} label={`${item.word || "单词"} 的音标`} className="phonetic-input" placeholder="音标" onChange={(phonetic) => updateWord(item.id, { phonetic })} /></div>
-        <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word || "单词"} 的词性`} className="part-input" placeholder="词性" onChange={(part) => updateWord(item.id, { part })} /><MarkdownEditableText value={item.meaning} label={`${item.word || "单词"} 的释义`} className="meaning-input" placeholder="中文释义" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>
+        <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word || "词条"} 的${item.word.trim().includes(" ") ? "短语类型" : "词性"}`} className="part-input" placeholder={item.word.trim().includes(" ") ? "短语类型" : "词性"} onChange={(part) => updateWord(item.id, { part })} /><MarkdownEditableText value={item.meaning} label={`${item.word || "单词"} 的释义`} className="meaning-input" placeholder="中文释义" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>
         <div className={`details-grid examples-only ${item.examples.length === 0 ? "empty-examples" : ""}`}><div>
-          {item.examples.length > 0 && <><span className="section-label">Examples</span><ol>{item.examples.map((example, index) => <li key={index}><span>{index + 1}.</span><MarkdownEditableText value={example} label="英文例句" onChange={(value) => updateExample(item.id, index, value)} /></li>)}</ol></>}
+          {item.examples.length > 0 && <><span className="section-label">Examples</span><ol>{item.examples.map((example, index) => <li key={index}><span>{index + 1}.</span><MarkdownEditableText value={example} label="英文例句" onChange={(value) => updateExample(item.id, index, value)} /><button className="delete-example-button" aria-label={`删除第 ${index + 1} 条例句`} title="删除例句" onClick={() => removeExample(item.id, index)}>×</button></li>)}</ol></>}
           <button className="add-example-button" onClick={() => addExample(item.id)}>＋ 添加例句</button>
         </div></div>
         <div className="note-block"><span>NOTE · MD</span><MarkdownNote value={item.note} label={`${item.word} 的 Markdown 学习笔记`} onChange={(note) => updateWord(item.id, { note })} /></div>
       </article>)}</section>
 
       {visibleWords.length === 0 && <div className="empty-state"><span>∿</span><p>{words.length === 0 ? "这一页还是空白的，从添加第一个单词开始吧。" : "没有找到对应的词语，换个关键词试试。"}</p></div>}
+      </>}
       <footer><span>WORD GARDEN</span><p>Small words, quietly collected.</p><span>{activePage?.name || "UNTITLED"}</span></footer>
     </div>
     {activePage && <PdfExportStage page={activePage} />}
