@@ -50,62 +50,115 @@ function bufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
-function cleanMarkdown(value: string) {
-  return value
-    .split("\n")
-    .map((line) => line
-      .replace(/^#{1,6}\s+/, "")
-      .replace(/^>\s+/, "❝ ")
-      .replace(/^[-*]\s+/, "• ")
-      .replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/`([^`]+)`/g, "$1")
-      .replace(/\*([^*]+)\*/g, "$1")
-      .trim())
-    .filter(Boolean)
-    .join("\n");
+type MarkdownStyle = "normal" | "bold" | "italic" | "code";
+type FontFamily = "cjk" | "latin";
+type StyledRun = { text: string; style: MarkdownStyle };
+type StyledLine = StyledRun[];
+
+function parseInlineMarkdown(value: string, baseStyle: MarkdownStyle = "normal") {
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
+  return value.split(pattern).filter(Boolean).map<StyledRun>((part) => {
+    if (part.startsWith("**") && part.endsWith("**")) return { text: part.slice(2, -2), style: "bold" };
+    if (part.startsWith("`") && part.endsWith("`")) return { text: part.slice(1, -1), style: "code" };
+    if (part.startsWith("*") && part.endsWith("*")) return { text: part.slice(1, -1), style: "italic" };
+    return { text: part, style: baseStyle };
+  });
 }
 
-function wrapLine(pdf: jsPDF, value: string, width: number) {
-  const tokens = value.match(/[A-Za-zÀ-ɏ0-9][A-Za-zÀ-ɏ0-9'’./_-]*|\s+|./gu) ?? [];
-  const lines: string[] = [];
-  let current = "";
+function parseMarkdownLine(rawLine: string): StyledLine {
+  let line = rawLine.trim();
+  let prefix = "";
+  let baseStyle: MarkdownStyle = "normal";
+  if (/^#{1,6}\s+/.test(line)) {
+    line = line.replace(/^#{1,6}\s+/, "");
+    baseStyle = "bold";
+  } else if (/^>\s+/.test(line)) {
+    line = line.replace(/^>\s+/, "");
+    prefix = "❝ ";
+    baseStyle = "italic";
+  } else if (/^[-*]\s+/.test(line)) {
+    line = line.replace(/^[-*]\s+/, "");
+    prefix = "• ";
+  }
+  return [...(prefix ? [{ text: prefix, style: baseStyle } satisfies StyledRun] : []), ...parseInlineMarkdown(line, baseStyle)];
+}
+
+function setRunFont(pdf: jsPDF, family: FontFamily, style: MarkdownStyle, text: string, size: number, color: string) {
+  const containsHan = /\p{Script=Han}/u.test(text);
+  if (family === "latin" || (style === "italic" && !containsHan)) {
+    pdf.setFont(LATIN_FONT_NAME, style === "bold" ? "bold" : style === "italic" ? "italic" : "normal");
+  } else {
+    pdf.setFont(FONT_NAME, style === "bold" ? "bold" : "normal");
+  }
+  pdf.setFontSize(size);
+  pdf.setTextColor(style === "code" ? "#435149" : color);
+}
+
+function appendRun(line: StyledLine, run: StyledRun) {
+  if (!run.text) return;
+  const previous = line.at(-1);
+  if (previous?.style === run.style) previous.text += run.text;
+  else line.push({ ...run });
+}
+
+function lineText(line: StyledLine) {
+  return line.map((run) => run.text).join("");
+}
+
+function rebalanceChineseOrphan(lines: StyledLine[]) {
+  if (lines.length < 2 || !/^\p{Script=Han}$/u.test(lineText(lines.at(-1) ?? []))) return;
+  const previousLine = lines[lines.length - 2];
+  for (let index = previousLine.length - 1; index >= 0; index -= 1) {
+    const characters = Array.from(previousLine[index].text.trimEnd());
+    const moved = characters.pop();
+    if (!moved || !/\p{Script=Han}/u.test(moved)) continue;
+    previousLine[index].text = characters.join("");
+    lines[lines.length - 1].unshift({ text: moved, style: previousLine[index].style });
+    return;
+  }
+}
+
+function wrapStyledLine(pdf: jsPDF, runs: StyledLine, width: number, family: FontFamily, size: number) {
+  const lines: StyledLine[] = [];
+  let current: StyledLine = [];
+  let currentWidth = 0;
   const closingPunctuation = /^[，。；：！？、）》】”’…,.!?;:]$/u;
 
-  tokens.forEach((token) => {
-    if (/^\s+$/.test(token) && !current) return;
-    const candidate = `${current}${token}`;
-    if (!current || pdf.getTextWidth(candidate) <= width) {
-      current = candidate;
-      return;
-    }
-    if (closingPunctuation.test(token)) {
-      current = candidate;
-      return;
-    }
-    lines.push(current.trimEnd());
-    current = /^\s+$/.test(token) ? "" : token.trimStart();
+  runs.forEach((run) => {
+    const tokens = run.text.match(/[A-Za-zÀ-ɏ0-9][A-Za-zÀ-ɏ0-9'’./_-]*|\s+|./gu) ?? [];
+    tokens.forEach((token) => {
+      if (/^\s+$/.test(token) && !current.length) return;
+      setRunFont(pdf, family, run.style, token, size, COLORS.body);
+      const tokenWidth = pdf.getTextWidth(token);
+      if (!current.length || currentWidth + tokenWidth <= width || closingPunctuation.test(token)) {
+        appendRun(current, { text: token, style: run.style });
+        currentWidth += tokenWidth;
+        return;
+      }
+      lines.push(current);
+      current = [];
+      currentWidth = 0;
+      if (!/^\s+$/.test(token)) {
+        appendRun(current, { text: token.trimStart(), style: run.style });
+        currentWidth = tokenWidth;
+      }
+    });
   });
-  if (current.trim()) lines.push(current.trimEnd());
-  if (lines.length > 1 && /^\p{Script=Han}$/u.test(lines.at(-1) ?? "")) {
-    const previous = Array.from(lines.at(-2) ?? "");
-    const moved = previous.pop();
-    if (moved && /\p{Script=Han}/u.test(moved)) {
-      lines[lines.length - 2] = previous.join("").trimEnd();
-      lines[lines.length - 1] = `${moved}${lines.at(-1)}`;
-    }
-  }
-  return lines.length ? lines : ["—"];
+  if (current.length) lines.push(current);
+  rebalanceChineseOrphan(lines);
+  return lines.length ? lines : [[{ text: "—", style: "normal" } satisfies StyledRun]];
 }
 
-function wrappedLines(pdf: jsPDF, value: string, width: number, fallback = "—") {
-  const cleaned = cleanMarkdown(value).trim() || fallback;
-  return cleaned.split("\n").flatMap((line) => wrapLine(pdf, line, width));
+function markdownLines(pdf: jsPDF, value: string, width: number, family: FontFamily, size: number, fallback = "—") {
+  const sourceLines = value.split("\n").filter((line) => line.trim());
+  const lines = sourceLines.length ? sourceLines : [fallback];
+  return lines.flatMap((line) => wrapStyledLine(pdf, parseMarkdownLine(line), width, family, size));
 }
 
-function exampleLines(pdf: jsPDF, examples: string[], width: number) {
-  const valid = examples.map(cleanMarkdown).filter(Boolean);
-  if (!valid.length) return ["—"];
-  return valid.flatMap((example, index) => wrapLine(pdf, `${index + 1}.  ${example}`, width));
+function exampleLines(pdf: jsPDF, examples: string[], width: number, size: number) {
+  const valid = examples.filter((example) => example.trim());
+  if (!valid.length) return [[{ text: "—", style: "normal" } satisfies StyledRun]];
+  return valid.flatMap((example, index) => wrapStyledLine(pdf, [{ text: `${index + 1}.  `, style: "normal" }, ...parseInlineMarkdown(example)], width, "latin", size));
 }
 
 function setText(pdf: jsPDF, size: number, color: string) {
@@ -173,30 +226,38 @@ function fitTextSize(pdf: jsPDF, text: string, maxWidth: number, preferred: numb
   return minimum;
 }
 
-function drawLines(pdf: jsPDF, lines: string[], x: number, y: number, size: number, lineHeight: number, color = COLORS.body, latin = false) {
-  if (latin) setLatinText(pdf, size, color);
-  else setText(pdf, size, color);
-  lines.forEach((line, index) => pdf.text(line, x, y + index * lineHeight));
+function drawStyledLines(pdf: jsPDF, lines: StyledLine[], x: number, y: number, size: number, lineHeight: number, color = COLORS.body, family: FontFamily = "cjk") {
+  lines.forEach((line, lineIndex) => {
+    let cursorX = x;
+    const baseline = y + lineIndex * lineHeight;
+    line.forEach((run) => {
+      setRunFont(pdf, family, run.style, run.text, size, color);
+      const runWidth = pdf.getTextWidth(run.text);
+      if (run.style === "code") {
+        pdf.setFillColor("#e9ece7");
+        pdf.roundedRect(cursorX - 0.45, baseline - size * 0.31, runWidth + 0.9, size * 0.39, 0.6, 0.6, "F");
+        setRunFont(pdf, family, run.style, run.text, size, color);
+      }
+      pdf.text(run.text, cursorX, baseline);
+      cursorX += runWidth;
+    });
+  });
 }
 
 type PreparedRow = {
   wordSize: number;
-  partLines: string[];
-  meaningLines: string[];
-  exampleLines: string[];
-  noteLines: string[];
+  partLines: StyledLine[];
+  meaningLines: StyledLine[];
+  exampleLines: StyledLine[];
+  noteLines: StyledLine[];
   height: number;
 };
 
 function prepareRow(pdf: jsPDF, item: PdfWord): PreparedRow {
-  setLatinText(pdf, 7.2, COLORS.body);
-  const partLines = wrappedLines(pdf, item.part || (item.word.trim().includes(" ") ? "phrase" : "—"), COLUMNS[1] - 6);
-  setText(pdf, 8.1, COLORS.body);
-  const meaningLines = wrappedLines(pdf, item.meaning, COLUMNS[2] - 7);
-  setLatinText(pdf, 7.6, COLORS.body);
-  const examples = exampleLines(pdf, item.examples, COLUMNS[3] - 7);
-  setText(pdf, 7.3, COLORS.body);
-  const notes = wrappedLines(pdf, item.note, COLUMNS[4] - 7);
+  const partLines = markdownLines(pdf, item.part || (item.word.trim().includes(" ") ? "phrase" : "—"), COLUMNS[1] - 6, "latin", 7.2);
+  const meaningLines = markdownLines(pdf, item.meaning, COLUMNS[2] - 7, "cjk", 8.1);
+  const examples = exampleLines(pdf, item.examples, COLUMNS[3] - 7, 7.6);
+  const notes = markdownLines(pdf, item.note, COLUMNS[4] - 7, "cjk", 7.3);
   const contentHeight = Math.max(partLines.length, meaningLines.length, examples.length, notes.length) * 3.75 + 7;
   return {
     wordSize: fitWordSize(pdf, item.word.trim() || "未命名词条", COLUMNS[0] - 7),
@@ -241,19 +302,32 @@ function drawRow(pdf: jsPDF, item: PdfWord, index: number, y: number, prepared: 
     MARGIN_X + COLUMNS[0] + COLUMNS[1] + COLUMNS[2] + 3.5,
     MARGIN_X + COLUMNS[0] + COLUMNS[1] + COLUMNS[2] + COLUMNS[3] + 3.5,
   ];
-  drawLines(pdf, prepared.partLines, starts[0], textY, 7.2, 3.75, COLORS.muted, true);
-  drawLines(pdf, prepared.meaningLines, starts[1], textY, 8.1, 3.75);
-  drawLines(pdf, prepared.exampleLines, starts[2], textY, 7.6, 3.75, "#59665e", true);
-  drawLines(pdf, prepared.noteLines, starts[3], textY, 7.3, 3.75, "#59665e");
+  drawStyledLines(pdf, prepared.partLines, starts[0], textY, 7.2, 3.75, COLORS.muted, "latin");
+  drawStyledLines(pdf, prepared.meaningLines, starts[1], textY, 8.1, 3.75);
+  drawStyledLines(pdf, prepared.exampleLines, starts[2], textY, 7.6, 3.75, "#59665e", "latin");
+  drawStyledLines(pdf, prepared.noteLines, starts[3], textY, 7.3, 3.75, "#59665e");
 }
 
-export function createVocabularyPdf(page: PdfWordPage, fontBuffer: ArrayBuffer, latinFontBuffer: ArrayBuffer, formattedDate: string) {
+export type PdfFontBuffers = {
+  cjkRegular: ArrayBuffer;
+  cjkBold: ArrayBuffer;
+  latinRegular: ArrayBuffer;
+  latinBold: ArrayBuffer;
+  latinItalic: ArrayBuffer;
+};
+
+export function createVocabularyPdf(page: PdfWordPage, fonts: PdfFontBuffers, formattedDate: string) {
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true, putOnlyUsedFonts: true });
-  const fontData = bufferToBase64(fontBuffer);
-  pdf.addFileToVFS("NotoSansSC-Regular.ttf", fontData);
+  pdf.addFileToVFS("NotoSansSC-Regular.ttf", bufferToBase64(fonts.cjkRegular));
   pdf.addFont("NotoSansSC-Regular.ttf", FONT_NAME, "normal");
-  pdf.addFileToVFS("NotoSans-Regular.ttf", bufferToBase64(latinFontBuffer));
+  pdf.addFileToVFS("NotoSansSC-Bold.ttf", bufferToBase64(fonts.cjkBold));
+  pdf.addFont("NotoSansSC-Bold.ttf", FONT_NAME, "bold");
+  pdf.addFileToVFS("NotoSans-Regular.ttf", bufferToBase64(fonts.latinRegular));
   pdf.addFont("NotoSans-Regular.ttf", LATIN_FONT_NAME, "normal");
+  pdf.addFileToVFS("NotoSans-Bold.ttf", bufferToBase64(fonts.latinBold));
+  pdf.addFont("NotoSans-Bold.ttf", LATIN_FONT_NAME, "bold");
+  pdf.addFileToVFS("NotoSans-Italic.ttf", bufferToBase64(fonts.latinItalic));
+  pdf.addFont("NotoSans-Italic.ttf", LATIN_FONT_NAME, "italic");
   drawHeader(pdf, page, formattedDate);
   let cursorY = drawTableHeader(pdf, TABLE_TOP);
 

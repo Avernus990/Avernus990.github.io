@@ -106,7 +106,7 @@ function MarkdownPreview({ content }: { content: string }) {
 }
 
 function MarkdownNote({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {
-  const [editing, setEditing] = useState(() => !value.trim());
+  const [editing, setEditing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const focusOnEditRef = useRef(false);
 
@@ -124,7 +124,7 @@ function MarkdownNote({ value, onChange, label }: { value: string; onChange: (va
   return <div className="markdown-note">
     {editing
       ? <textarea ref={textareaRef} aria-label={label} value={value} rows={5} placeholder="输入 Markdown 笔记，点击其他地方自动预览" onChange={(event) => onChange(event.target.value)} onBlur={() => setEditing(false)} />
-      : <button type="button" className="markdown-preview-trigger" aria-label={`编辑${label}`} onClick={beginEditing}><MarkdownPreview content={value} /></button>}
+      : <button type="button" className={`markdown-preview-trigger ${value.trim() ? "" : "is-empty"}`} aria-label={`编辑${label}`} onClick={beginEditing}>{value.trim() ? <MarkdownPreview content={value} /> : <span className="markdown-empty-placeholder">点击添加 Markdown 笔记</span>}</button>}
   </div>;
 }
 
@@ -261,6 +261,13 @@ export default function Home() {
   useEffect(() => {
     if (!pages.some((page) => page.id === batchTargetPageId)) setBatchTargetPageId(pages[0]?.id ?? "");
   }, [pages, batchTargetPageId]);
+
+  useEffect(() => {
+    if (viewMode !== "page") return;
+    setFocusWordId(null);
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [activePageId, viewMode]);
 
   const visibleWords = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -434,14 +441,18 @@ export default function Home() {
 
     setExporting(true); setMessage("正在生成当前页 PDF…");
     try {
-      const [{ createVocabularyPdf }, fontResponse, latinFontResponse] = await Promise.all([
+      const [{ createVocabularyPdf }, ...fontResponses] = await Promise.all([
         import("../lib/vocabulary-pdf"),
         fetch("/fonts/NotoSansSC-Regular.ttf"),
+        fetch("/fonts/NotoSansSC-Bold.ttf"),
         fetch("/fonts/NotoSans-Regular.ttf"),
+        fetch("/fonts/NotoSans-Bold.ttf"),
+        fetch("/fonts/NotoSans-Italic.ttf"),
       ]);
-      if (!fontResponse.ok || !latinFontResponse.ok) throw new Error("PDF 字体加载失败");
+      if (fontResponses.some((response) => !response.ok)) throw new Error("PDF 字体加载失败");
+      const [cjkRegular, cjkBold, latinRegular, latinBold, latinItalic] = await Promise.all(fontResponses.map((response) => response.arrayBuffer()));
       const formattedDate = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long" }).format(new Date());
-      const pdf = createVocabularyPdf(activePage, await fontResponse.arrayBuffer(), await latinFontResponse.arrayBuffer(), formattedDate);
+      const pdf = createVocabularyPdf(activePage, { cjkRegular, cjkBold, latinRegular, latinBold, latinItalic }, formattedDate);
       const totalPages = pdf.getNumberOfPages();
 
       const blob = pdf.output("blob");
@@ -602,7 +613,7 @@ export default function Home() {
         {visibleGlobalWords.length === 0 && <div className="empty-state"><span>∿</span><p>{allWordEntries.length === 0 ? "词汇本还是空白的，先回到一个页面添加单词吧。" : "没有找到对应的词语，换个关键词试试。"}</p></div>}
       </> : <>
       <section className="collection-heading"><div><p className="eyebrow">The collection</p><h2>词语标本</h2></div><p><strong>{visibleWords.length}</strong> / {words.length} WORDS</p></section>
-      <section className="card-grid" aria-label="单词卡片列表">{visibleWords.map((item, cardIndex) => <article className={`word-card ${item.tone}`} key={item.id}>
+      <section className="card-grid" aria-label="单词卡片列表">{visibleWords.map((item, cardIndex) => <article className={`word-card ${item.tone}`} key={`${activePageId}-${item.id}`}>
         <div className="card-topline"><span>{String(cardIndex + 1).padStart(2, "0")}</span><select aria-label={`${item.word} 的学习状态`} value={item.status} onChange={(event) => updateWord(item.id, { status: event.target.value as WordCard["status"] })}><option>学习中</option><option>待复习</option><option>已掌握</option></select><div className="card-actions"><button className="enrich-button" disabled={loadingId !== null} onClick={() => enrichWord(item.id)}>{loadingId === item.id ? "查询中…" : "自动补全"}</button><button className="delete-button" aria-label={`删除 ${item.word}`} onClick={() => removeWord(item.id)}>×</button></div></div>
         <div className="word-title"><EditableText value={item.word} label="英文单词" className="word-input" placeholder="输入英文单词" autoFocus={focusWordId === item.id} onFocus={() => setFocusWordId(null)} onChange={(word) => updateWord(item.id, { word })} onBlur={() => handleWordBlur(item)} /><EditableText value={item.phonetic} label={`${item.word || "单词"} 的音标`} className="phonetic-input" placeholder="音标" onChange={(phonetic) => updateWord(item.id, { phonetic })} /></div>
         <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word || "词条"} 的${item.word.trim().includes(" ") ? "短语类型" : "词性"}`} className="part-input" placeholder={item.word.trim().includes(" ") ? "短语类型" : "词性"} onChange={(part) => updateWord(item.id, { part })} /><MarkdownEditableText value={item.meaning} label={`${item.word || "单词"} 的释义`} className="meaning-input" placeholder="中文释义" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>

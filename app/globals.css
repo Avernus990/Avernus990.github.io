@@ -218,6 +218,8 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .markdown-note { min-width: 0; }
 .markdown-preview-trigger { display: block; width: 100%; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 3px; background: transparent; text-align: left; cursor: text; transition: background .18s ease, box-shadow .18s ease; }
 .markdown-preview-trigger:hover, .markdown-preview-trigger:focus-visible { outline: 0; background: rgba(255,255,255,.5); box-shadow: 0 0 0 3px rgba(137,155,139,.08); }
+.markdown-preview-trigger.is-empty { min-height: 32px; }
+.markdown-empty-placeholder { color: #a0aaa3; font-size: 10px; letter-spacing: .02em; }
 .markdown-preview { min-height: 32px; color: #5c6961; font-size: 11.5px; line-height: 1.62; }
 .markdown-preview p { margin: 0 0 5px; }
 .markdown-preview h3, .markdown-preview h4, .markdown-preview h5 { margin: 0 0 6px; font-family: Georgia, "Songti SC", serif; color: #45534b; font-weight: 600; }
