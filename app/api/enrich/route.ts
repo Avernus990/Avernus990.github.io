@@ -34,6 +34,13 @@ class GeminiApiError extends Error {
   }
 }
 
+class GeminiResultError extends Error {
+  constructor(readonly userMessage: string) {
+    super(userMessage);
+    this.name = "GeminiResultError";
+  }
+}
+
 const containsChinese = (value: string) => /[\u3400-\u9fff]/.test(value);
 
 function formatPhonetic(value: string) {
@@ -62,6 +69,7 @@ async function enrichWithGemini(word: string, apiKey: string) {
     "Return its standard IPA pronunciation, its most common part of speech in lowercase English,",
     "and 1 to 3 concise Simplified Chinese meanings ordered by frequency.",
     "Meanings must contain Chinese, with no numbering, no part of speech, and no English definition.",
+    'Reply with JSON only in this exact shape: {"phonetic":"/.../","part":"noun","meanings":["中文释义"]}',
   ].join("\n");
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/interactions",
@@ -73,31 +81,12 @@ async function enrichWithGemini(word: string, apiKey: string) {
       },
       signal: AbortSignal.timeout(12000),
       body: JSON.stringify({
-        model: "gemini-2.5-flash-lite",
+        model: "gemini-flash-lite-latest",
         input: prompt,
         store: false,
         generation_config: {
           temperature: 0.1,
           max_output_tokens: 220,
-        },
-        response_format: {
-          type: "text",
-          mime_type: "application/json",
-          schema: {
-            type: "object",
-            properties: {
-              phonetic: { type: "string", description: "Standard IPA pronunciation wrapped in slashes." },
-              part: { type: "string", description: "Most common English part of speech, lowercase." },
-              meanings: {
-                type: "array",
-                minItems: 1,
-                maxItems: 3,
-                items: { type: "string", description: "A concise Simplified Chinese meaning." },
-              },
-            },
-            required: ["phonetic", "part", "meanings"],
-            additionalProperties: false,
-          },
         },
       }),
     },
@@ -121,14 +110,28 @@ async function enrichWithGemini(word: string, apiKey: string) {
     .map((content) => content.text ?? "")
     .join("")
     .trim();
-  if (!text) throw new Error("Gemini returned no content");
+  if (!text) throw new GeminiResultError("Gemini 没有返回可用内容");
 
-  const result = JSON.parse(text) as GeminiResult;
+  const unfenced = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const objectStart = unfenced.indexOf("{");
+  const objectEnd = unfenced.lastIndexOf("}");
+  const jsonText = objectStart >= 0 && objectEnd > objectStart
+    ? unfenced.slice(objectStart, objectEnd + 1)
+    : unfenced;
+  let result: GeminiResult;
+  try {
+    result = JSON.parse(jsonText) as GeminiResult;
+  } catch {
+    throw new GeminiResultError("Gemini 返回的内容无法解析");
+  }
   const meanings = (result.meanings ?? [])
     .map((meaning) => meaning.trim())
     .filter((meaning) => meaning && containsChinese(meaning))
     .slice(0, 3);
-  if (!meanings.length) throw new Error("Gemini returned no Chinese meaning");
+  if (!meanings.length) throw new GeminiResultError("Gemini 没有返回中文释义");
 
   return {
     phonetic: formatPhonetic(result.phonetic ?? ""),
@@ -173,6 +176,9 @@ export async function GET(request: NextRequest) {
       source: "Gemini 2.5 Flash-Lite + Free Dictionary API",
     });
   } catch (error) {
+    if (error instanceof GeminiResultError) {
+      return NextResponse.json({ error: error.userMessage }, { status: 502 });
+    }
     if (error instanceof GeminiApiError) {
       if (error.status === 401 || error.status === 403) {
         return NextResponse.json({ error: "Gemini 密钥无效或没有访问权限" }, { status: 502 });
@@ -183,10 +189,17 @@ export async function GET(request: NextRequest) {
       if (error.status === 400) {
         return NextResponse.json({ error: "Gemini 请求格式不受支持" }, { status: 502 });
       }
+      return NextResponse.json(
+        { error: `Gemini 服务返回错误（${error.status}）` },
+        { status: 502 },
+      );
     }
     if (error instanceof Error && error.name === "TimeoutError") {
       return NextResponse.json({ error: "Gemini 响应超时，请稍后再试" }, { status: 504 });
     }
-    return NextResponse.json({ error: "智能补全暂时不可用，请稍后再试" }, { status: 502 });
+    return NextResponse.json(
+      { error: `智能补全连接失败（${error instanceof Error ? error.name : "Unknown"}）` },
+      { status: 502 },
+    );
   }
 }
