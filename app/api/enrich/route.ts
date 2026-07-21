@@ -13,7 +13,7 @@ type Entry = {
 type GeminiResult = {
   phonetic?: string;
   part?: string;
-  meanings?: string[];
+  meanings?: Array<string | { part?: string; meaning?: string }>;
 };
 
 type GeminiPayload = {
@@ -66,10 +66,10 @@ async function fetchDictionary(word: string) {
 async function enrichWithGemini(word: string, apiKey: string) {
   const prompt = [
     `English word: ${word}`,
-    "Return its standard IPA pronunciation, its most common part of speech in lowercase English,",
-    "and 1 to 3 concise Simplified Chinese meanings ordered by frequency.",
-    "Meanings must contain Chinese, with no numbering, no part of speech, and no English definition.",
-    'Reply with JSON only in this exact shape: {"phonetic":"/.../","part":"noun","meanings":["中文释义"]}',
+    "Return its standard IPA pronunciation and 1 to 5 common meanings ordered by frequency.",
+    "For every meaning, include that meaning's lowercase English part of speech and a concise Simplified Chinese translation.",
+    "Include different common parts of speech when the word has them. Do not add numbering or English definitions.",
+    'Reply with JSON only in this exact shape: {"phonetic":"/.../","meanings":[{"part":"noun","meaning":"中文释义"},{"part":"verb","meaning":"中文释义"}]}',
   ].join("\n");
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/interactions",
@@ -86,7 +86,7 @@ async function enrichWithGemini(word: string, apiKey: string) {
         store: false,
         generation_config: {
           temperature: 0.1,
-          max_output_tokens: 220,
+          max_output_tokens: 320,
         },
       }),
     },
@@ -127,16 +127,27 @@ async function enrichWithGemini(word: string, apiKey: string) {
   } catch {
     throw new GeminiResultError("Gemini 返回的内容无法解析");
   }
+  const fallbackPart = (result.part ?? "").trim().toLowerCase();
   const meanings = (result.meanings ?? [])
-    .map((meaning) => meaning.trim())
-    .filter((meaning) => meaning && containsChinese(meaning))
-    .slice(0, 3);
+    .map((entry) => typeof entry === "string"
+      ? { part: fallbackPart, meaning: entry.trim() }
+      : {
+          part: (entry.part ?? fallbackPart).trim().toLowerCase(),
+          meaning: (entry.meaning ?? "").trim(),
+        })
+    .filter((entry) => entry.meaning && containsChinese(entry.meaning))
+    .slice(0, 5);
   if (!meanings.length) throw new GeminiResultError("Gemini 没有返回中文释义");
+
+  const parts = [...new Set(meanings.map((entry) => entry.part).filter(Boolean))];
+  const hasMultipleParts = parts.length > 1;
 
   return {
     phonetic: formatPhonetic(result.phonetic ?? ""),
-    part: (result.part ?? "").trim().toLowerCase(),
-    meanings,
+    part: hasMultipleParts ? "" : (parts[0] ?? fallbackPart),
+    meanings: meanings.map((entry) => hasMultipleParts && entry.part
+      ? `${entry.part}  ${entry.meaning}`
+      : entry.meaning),
   };
 }
 
@@ -173,7 +184,7 @@ export async function GET(request: NextRequest) {
       meaning: gemini.meanings.map((meaning, index) => `${index + 1}. ${meaning}`).join("\n"),
       examples,
       translationAvailable: true,
-      source: "Gemini 2.5 Flash-Lite + Free Dictionary API",
+      source: "Gemini Flash-Lite + Free Dictionary API",
     });
   } catch (error) {
     if (error instanceof GeminiResultError) {
