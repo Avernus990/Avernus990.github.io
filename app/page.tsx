@@ -128,26 +128,6 @@ function MarkdownNote({ value, onChange, label }: { value: string; onChange: (va
   </div>;
 }
 
-function PdfExportStage({ page }: { page: WordPage }) {
-  return <section className="pdf-export-stage" id="pdf-export-stage" aria-hidden="true">
-    <header className="pdf-export-header" data-pdf-header>
-      <p>{new Intl.DateTimeFormat("zh-CN", { dateStyle: "long" }).format(new Date())}</p>
-      <h1>英语词汇积累</h1>
-      <h2>{page.name}</h2>
-      <span>{page.words.length} WORDS · WORD GARDEN</span>
-    </header>
-    <div className="pdf-table-head" data-pdf-columns><span>词汇</span><span>类型 / 词性</span><span>中文释义</span><span>例句</span><span>NOTE</span></div>
-    {page.words.map((item, index) => <article className={`pdf-table-row ${item.tone}`} data-pdf-card key={item.id}>
-      <div className="pdf-word-cell"><small>{String(index + 1).padStart(2, "0")}</small><h3>{item.word || "未命名词条"}</h3>{item.phonetic && <p>{item.phonetic}</p>}</div>
-      <div className="pdf-part-cell">{item.part || (item.word.trim().includes(" ") ? "phrase" : "—")}</div>
-      <div className="pdf-meaning-cell">{item.meaning ? item.meaning.split("\n").map((line, lineIndex) => <p key={lineIndex}>{renderInlineMarkdown(line)}</p>) : "—"}</div>
-      <ol className="pdf-examples-cell">{item.examples.filter(Boolean).map((example, exampleIndex) => <li key={exampleIndex}><span>{exampleIndex + 1}.</span><p>{renderInlineMarkdown(example)}</p></li>)}{!item.examples.some(Boolean) && <li>—</li>}</ol>
-      <div className="pdf-note-cell">{item.note ? <MarkdownPreview content={item.note} /> : "—"}</div>
-    </article>)}
-    {page.words.length === 0 && <div className="pdf-empty" data-pdf-card>这一页还没有单词。</div>}
-  </section>;
-}
-
 export default function Home() {
   const [pages, setPages] = useState<WordPage[]>(starterPages);
   const [activePageId, setActivePageId] = useState(starterPages[0].id);
@@ -454,53 +434,15 @@ export default function Home() {
 
     setExporting(true); setMessage("正在生成当前页 PDF…");
     try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
-      await document.fonts.ready;
-      const stage = document.getElementById("pdf-export-stage");
-      if (!stage) throw new Error("未找到 PDF 内容");
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
-      const pageWidth = 210, pageHeight = 297, margin = 12, contentWidth = pageWidth - margin * 2, gap = 1.5;
-      let cursorY = margin;
-      const header = stage.querySelector<HTMLElement>("[data-pdf-header]");
-      if (header) {
-        const canvas = await html2canvas(header, { scale: 1.5, backgroundColor: "#f5f2e9", logging: false });
-        const height = canvas.height * contentWidth / canvas.width;
-        pdf.addImage(canvas.toDataURL("image/jpeg", .94), "JPEG", margin, cursorY, contentWidth, height, undefined, "FAST");
-        cursorY += height + 8;
-      }
-
-      const columns = stage.querySelector<HTMLElement>("[data-pdf-columns]");
-      let columnsCanvas: HTMLCanvasElement | null = null;
-      let columnsHeight = 0;
-      if (columns) {
-        columnsCanvas = await html2canvas(columns, { scale: 1.5, backgroundColor: "#e9eee9", logging: false });
-        columnsHeight = columnsCanvas.height * contentWidth / columnsCanvas.width;
-        pdf.addImage(columnsCanvas.toDataURL("image/jpeg", .94), "JPEG", margin, cursorY, contentWidth, columnsHeight, undefined, "FAST");
-        cursorY += columnsHeight;
-      }
-
-      const cards = Array.from(stage.querySelectorAll<HTMLElement>("[data-pdf-card]"));
-      for (const card of cards) {
-        const canvas = await html2canvas(card, { scale: 1.5, backgroundColor: "#fbfaf5", logging: false });
-        let width = contentWidth;
-        let height = canvas.height * width / canvas.width;
-        const maxHeight = pageHeight - margin * 2 - columnsHeight;
-        if (height > maxHeight) { height = maxHeight; width = canvas.width * height / canvas.height; }
-        if (cursorY + height > pageHeight - margin) {
-          pdf.addPage(); cursorY = margin;
-          if (columnsCanvas) {
-            pdf.addImage(columnsCanvas.toDataURL("image/jpeg", .94), "JPEG", margin, cursorY, contentWidth, columnsHeight, undefined, "FAST");
-            cursorY += columnsHeight;
-          }
-        }
-        pdf.addImage(canvas.toDataURL("image/jpeg", .94), "JPEG", margin + (contentWidth - width) / 2, cursorY, width, height, undefined, "FAST");
-        cursorY += height + gap;
-      }
-
+      const [{ createVocabularyPdf }, fontResponse, latinFontResponse] = await Promise.all([
+        import("../lib/vocabulary-pdf"),
+        fetch("/fonts/NotoSansSC-Regular.ttf"),
+        fetch("/fonts/NotoSans-Regular.ttf"),
+      ]);
+      if (!fontResponse.ok || !latinFontResponse.ok) throw new Error("PDF 字体加载失败");
+      const formattedDate = new Intl.DateTimeFormat("zh-CN", { dateStyle: "long" }).format(new Date());
+      const pdf = createVocabularyPdf(activePage, await fontResponse.arrayBuffer(), await latinFontResponse.arrayBuffer(), formattedDate);
       const totalPages = pdf.getNumberOfPages();
-      for (let index = 1; index <= totalPages; index += 1) {
-        pdf.setPage(index); pdf.setFontSize(8); pdf.setTextColor(120, 128, 122); pdf.text(`${index} / ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: "right" });
-      }
 
       const blob = pdf.output("blob");
       if (fileHandle) {
@@ -675,6 +617,5 @@ export default function Home() {
       </>}
       <footer><span>WORD GARDEN</span><p>Small words, quietly collected.</p><span>{activePage?.name || "UNTITLED"}</span></footer>
     </div>
-    {activePage && <PdfExportStage page={activePage} />}
   </main>;
 }
