@@ -180,6 +180,10 @@ h1 em { color: #7f8e84; font-weight: 400; }
 .section-label { display: block; margin-bottom: 8px; color: #909991; font-size: 8px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; }
 .meaning-editor { display: grid; grid-template-columns: minmax(54px, auto) 1fr; gap: 13px; align-items: start; }
 .meaning-input { min-height: 58px; white-space: pre-wrap; font-family: Georgia, "Songti SC", serif; font-size: 16px; line-height: 1.72; color: #3b4941; }
+.inline-markdown-preview { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 3px; background: transparent; text-align: left; cursor: text; }
+.inline-markdown-preview:hover, .inline-markdown-preview:focus-visible { outline: 0; background: rgba(255,255,255,.46); box-shadow: 0 0 0 3px rgba(137,155,139,.08); }
+.inline-markdown-line { display: block; min-height: 1.45em; }
+.inline-markdown-preview strong, .pdf-meaning strong, .pdf-section li strong { color: #34483d; font-weight: 700; }
 
 .details-grid { display: grid; grid-template-columns: .85fr 1.35fr; gap: 28px; padding: 17px 0 18px; border-top: 1px solid var(--line); }
 .details-grid.examples-only { grid-template-columns: 1fr; }
@@ -259,6 +263,7 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
 .pdf-section li span { color: var(--pdf-accent); }
 .pdf-note { padding: 10px 13px; background: #f1f2ed; border-left: 3px solid var(--pdf-accent); }
 .pdf-note .markdown-preview { color: #56635b; font-size: 9.5px; line-height: 1.45; }
+.pdf-meaning p, .pdf-section li p { margin: 0; }
 .pdf-note .markdown-preview p { margin-bottom: 3px; }
 .pdf-note .markdown-preview h3 { font-size: 11px; }
 .pdf-note .markdown-preview h4 { font-size: 10px; }

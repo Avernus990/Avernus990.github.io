@@ -53,6 +53,32 @@ function EditableText({ value, onChange, className = "", multiline = false, labe
   return <input aria-label={label} className={`editable ${className}`} value={value} placeholder={placeholder} autoFocus={autoFocus} onFocus={onFocus} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} />;
 }
 
+function MarkdownEditableText({ value, onChange, className = "", label, placeholder }: {
+  value: string; onChange: (value: string) => void; className?: string; label: string; placeholder?: string;
+}) {
+  const [editing, setEditing] = useState(() => !value.trim());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previousValueRef = useRef(value);
+
+  useEffect(() => {
+    if (value !== previousValueRef.current && document.activeElement !== textareaRef.current) {
+      setEditing(false);
+    }
+    previousValueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    if (!editing || !textareaRef.current) return;
+    textareaRef.current.focus();
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  }, [editing, value]);
+
+  return editing
+    ? <textarea ref={textareaRef} aria-label={label} className={`editable ${className}`} value={value} rows={2} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} onBlur={() => setEditing(false)} />
+    : <button type="button" className={`inline-markdown-preview ${className}`} aria-label={`编辑${label}`} onClick={() => setEditing(true)}>{value.split("\n").map((line, index) => <span className="inline-markdown-line" key={index}>{renderInlineMarkdown(line)}</span>)}</button>;
+}
+
 function renderInlineMarkdown(text: string): ReactNode[] {
   const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
   return text.split(pattern).filter(Boolean).map((part, index) => {
@@ -109,8 +135,8 @@ function PdfExportStage({ page }: { page: WordPage }) {
     {page.words.map((item, index) => <article className={`pdf-word-card ${item.tone}`} data-pdf-card key={item.id}>
       <div className="pdf-card-top"><span>{String(index + 1).padStart(2, "0")}</span><b>{item.status}</b></div>
       <h3>{item.word}</h3><p className="pdf-phonetic">{item.phonetic}</p>
-      <div className="pdf-section"><small>MEANING</small><div className="pdf-meaning-row"><p className="pdf-part">{item.part}</p><p className="pdf-meaning">{item.meaning}</p></div></div>
-      {item.examples.some(Boolean) && <div className="pdf-section"><small>EXAMPLES</small><ol>{item.examples.filter(Boolean).map((example, exampleIndex) => <li key={exampleIndex}><span>{exampleIndex + 1}.</span>{example}</li>)}</ol></div>}
+      <div className="pdf-section"><small>MEANING</small><div className="pdf-meaning-row"><p className="pdf-part">{item.part}</p><div className="pdf-meaning">{item.meaning.split("\n").map((line, lineIndex) => <p key={lineIndex}>{renderInlineMarkdown(line)}</p>)}</div></div></div>
+      {item.examples.some(Boolean) && <div className="pdf-section"><small>EXAMPLES</small><ol>{item.examples.filter(Boolean).map((example, exampleIndex) => <li key={exampleIndex}><span>{exampleIndex + 1}.</span><p>{renderInlineMarkdown(example)}</p></li>)}</ol></div>}
       <div className="pdf-note"><small>NOTE · MD</small><MarkdownPreview content={item.note} /></div>
     </article>)}
     {page.words.length === 0 && <div className="pdf-empty" data-pdf-card>这一页还没有单词。</div>}
@@ -298,7 +324,7 @@ export default function Home() {
       const response = await fetch(`/api/enrich?word=${encodeURIComponent(item.word.trim())}`);
       const data = await response.json() as { error?: string; phonetic?: string; part?: string; meaning?: string; examples?: string[]; translationAvailable?: boolean };
       if (!response.ok) throw new Error(data.error || "自动补全失败");
-      updateWord(id, { phonetic: data.phonetic || item.phonetic, part: data.part || item.part, meaning: data.meaning || item.meaning });
+      updateWord(id, { phonetic: data.phonetic || item.phonetic, part: data.part || item.part, meaning: data.meaning || item.meaning, examples: data.examples?.length ? data.examples : item.examples });
       setMessage(data.translationAvailable === false
         ? `“${item.word}”的音标已补全，中文翻译服务暂时繁忙，请稍后再试`
         : `“${item.word}”已由在线词典自动补全`);
@@ -465,9 +491,9 @@ export default function Home() {
       <section className="card-grid" aria-label="单词卡片列表">{visibleWords.map((item, cardIndex) => <article className={`word-card ${item.tone}`} key={item.id}>
         <div className="card-topline"><span>{String(cardIndex + 1).padStart(2, "0")}</span><select aria-label={`${item.word} 的学习状态`} value={item.status} onChange={(event) => updateWord(item.id, { status: event.target.value as WordCard["status"] })}><option>学习中</option><option>待复习</option><option>已掌握</option></select><div className="card-actions"><button className="enrich-button" disabled={loadingId !== null} onClick={() => enrichWord(item.id)}>{loadingId === item.id ? "查询中…" : "自动补全"}</button><button className="delete-button" aria-label={`删除 ${item.word}`} onClick={() => removeWord(item.id)}>×</button></div></div>
         <div className="word-title"><EditableText value={item.word} label="英文单词" className="word-input" placeholder="输入英文单词" autoFocus={focusWordId === item.id} onFocus={() => setFocusWordId(null)} onChange={(word) => updateWord(item.id, { word })} onBlur={() => { if (!item.phonetic || !item.meaning) enrichWord(item.id); }} /><EditableText value={item.phonetic} label={`${item.word || "单词"} 的音标`} className="phonetic-input" placeholder="音标" onChange={(phonetic) => updateWord(item.id, { phonetic })} /></div>
-        <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word || "单词"} 的词性`} className="part-input" placeholder="词性" onChange={(part) => updateWord(item.id, { part })} /><EditableText multiline value={item.meaning} label={`${item.word || "单词"} 的释义`} className="meaning-input" placeholder="中文释义" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>
+        <div className="meaning-block"><span className="section-label">Meaning</span><div className="meaning-editor"><EditableText value={item.part} label={`${item.word || "单词"} 的词性`} className="part-input" placeholder="词性" onChange={(part) => updateWord(item.id, { part })} /><MarkdownEditableText value={item.meaning} label={`${item.word || "单词"} 的释义`} className="meaning-input" placeholder="中文释义" onChange={(meaning) => updateWord(item.id, { meaning })} /></div></div>
         <div className={`details-grid examples-only ${item.examples.length === 0 ? "empty-examples" : ""}`}><div>
-          {item.examples.length > 0 && <><span className="section-label">Examples</span><ol>{item.examples.map((example, index) => <li key={index}><span>{index + 1}.</span><EditableText multiline value={example} label="英文例句" onChange={(value) => updateExample(item.id, index, value)} /></li>)}</ol></>}
+          {item.examples.length > 0 && <><span className="section-label">Examples</span><ol>{item.examples.map((example, index) => <li key={index}><span>{index + 1}.</span><MarkdownEditableText value={example} label="英文例句" onChange={(value) => updateExample(item.id, index, value)} /></li>)}</ol></>}
           <button className="add-example-button" onClick={() => addExample(item.id)}>＋ 添加例句</button>
         </div></div>
         <div className="note-block"><span>NOTE · MD</span><MarkdownNote value={item.note} label={`${item.word} 的 Markdown 学习笔记`} onChange={(note) => updateWord(item.id, { note })} /></div>

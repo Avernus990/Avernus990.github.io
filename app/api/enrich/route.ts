@@ -13,7 +13,8 @@ type Entry = {
 type GeminiResult = {
   phonetic?: string;
   part?: string;
-  meanings?: Array<string | { part?: string; meaning?: string }>;
+  meanings?: Array<string | { part?: string; meaning?: string; common?: boolean }>;
+  example?: string;
 };
 
 type GeminiPayload = {
@@ -49,6 +50,11 @@ function formatPhonetic(value: string) {
   return phonetic.startsWith("/") ? phonetic : `/${phonetic.replace(/^\[|\]$/g, "")}/`;
 }
 
+function highlightWord(example: string, word: string) {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return example.replace(new RegExp(`\\b(${escaped})\\b`, "i"), "**$1**");
+}
+
 async function fetchDictionary(word: string) {
   try {
     const response = await fetch(
@@ -69,7 +75,9 @@ async function enrichWithGemini(word: string, apiKey: string) {
     "Return its standard IPA pronunciation and 1 to 5 common meanings ordered by frequency.",
     "For every meaning, include that meaning's lowercase English part of speech and a concise Simplified Chinese translation.",
     "Include different common parts of speech when the word has them. Do not add numbering or English definitions.",
-    'Reply with JSON only in this exact shape: {"phonetic":"/.../","meanings":[{"part":"noun","meaning":"中文释义"},{"part":"verb","meaning":"中文释义"}]}',
+    "Mark only the one or two most common everyday meanings with common: true.",
+    `Also write one natural English example sentence that uses the exact spelling "${word}".`,
+    'Reply with JSON only in this exact shape: {"phonetic":"/.../","meanings":[{"part":"noun","meaning":"中文释义","common":true},{"part":"verb","meaning":"中文释义","common":false}],"example":"One natural sentence."}',
   ].join("\n");
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/interactions",
@@ -134,6 +142,7 @@ async function enrichWithGemini(word: string, apiKey: string) {
       : {
           part: (entry.part ?? fallbackPart).trim().toLowerCase(),
           meaning: (entry.meaning ?? "").trim(),
+          common: entry.common === true,
         })
     .filter((entry) => entry.meaning && containsChinese(entry.meaning))
     .slice(0, 5);
@@ -141,13 +150,19 @@ async function enrichWithGemini(word: string, apiKey: string) {
 
   const parts = [...new Set(meanings.map((entry) => entry.part).filter(Boolean))];
   const hasMultipleParts = parts.length > 1;
+  const hasMarkedCommonMeaning = meanings.some((entry) => entry.common);
+  const example = (result.example ?? "").trim();
 
   return {
     phonetic: formatPhonetic(result.phonetic ?? ""),
     part: hasMultipleParts ? "" : (parts[0] ?? fallbackPart),
-    meanings: meanings.map((entry) => hasMultipleParts && entry.part
-      ? `${entry.part}  ${entry.meaning}`
-      : entry.meaning),
+    meanings: meanings.map((entry, index) => {
+      const meaning = entry.common || (!hasMarkedCommonMeaning && index === 0)
+        ? `**${entry.meaning}**`
+        : entry.meaning;
+      return hasMultipleParts && entry.part ? `${entry.part}  ${meaning}` : meaning;
+    }),
+    example: example ? highlightWord(example, word) : "",
   };
 }
 
@@ -171,11 +186,14 @@ export async function GET(request: NextRequest) {
     const dictionaryPhonetic = dictionary?.phonetic
       || dictionary?.phonetics?.find((item) => item.text)?.text
       || "";
-    const examples = (dictionary?.meanings ?? [])
+    const dictionaryExamples = (dictionary?.meanings ?? [])
       .flatMap((meaning) => meaning.definitions ?? [])
       .map((definition) => definition.example)
       .filter((example): example is string => Boolean(example))
-      .slice(0, 2);
+      .slice(0, 1);
+    const examples = gemini.example
+      ? [gemini.example]
+      : dictionaryExamples.map((example) => highlightWord(example, word));
 
     return NextResponse.json({
       word,
