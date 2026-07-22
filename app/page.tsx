@@ -42,7 +42,14 @@ const tones: WordCard["tone"][] = ["lilac", "water", "peach", "sage"];
 const statuses: Array<"全部" | WordCard["status"]> = ["全部", "学习中", "待复习", "已掌握"];
 const wordEntryKey = (pageId: string, wordId: number) => `${pageId}:${wordId}`;
 const remoteApiBase = "https://lr-wordbook-api.avernus990.workers.dev";
+const hostedAssetBase = "https://lr-wordbook-pages-source.pages.dev";
 const accessTokenKey = "lr-wordbook-access-token";
+
+function assetUrl(path: string) {
+  const useHostedAssets = typeof window !== "undefined"
+    && window.location.hostname.toLowerCase() === "avernus990.github.io";
+  return `${useHostedAssets ? hostedAssetBase : ""}${path}`;
+}
 
 function apiFetch(path: string, init: RequestInit = {}) {
   const useRemoteApi = typeof window !== "undefined" && (
@@ -505,11 +512,11 @@ export default function Home() {
     try {
       const [{ createVocabularyPdf }, ...fontResponses] = await Promise.all([
         import("../lib/vocabulary-pdf"),
-        fetch("/fonts/NotoSansSC-Regular.ttf"),
-        fetch("/fonts/NotoSansSC-Bold.ttf"),
-        fetch("/fonts/NotoSans-Regular.ttf"),
-        fetch("/fonts/NotoSans-Bold.ttf"),
-        fetch("/fonts/NotoSans-Italic.ttf"),
+        fetch(assetUrl("/fonts/NotoSansSC-Regular.ttf")),
+        fetch(assetUrl("/fonts/NotoSansSC-Bold.ttf")),
+        fetch(assetUrl("/fonts/NotoSans-Regular.ttf")),
+        fetch(assetUrl("/fonts/NotoSans-Bold.ttf")),
+        fetch(assetUrl("/fonts/NotoSans-Italic.ttf")),
       ]);
       if (fontResponses.some((response) => !response.ok)) throw new Error("PDF 字体加载失败");
       const [cjkRegular, cjkBold, latinRegular, latinBold, latinItalic] = await Promise.all(fontResponses.map((response) => response.arrayBuffer()));
