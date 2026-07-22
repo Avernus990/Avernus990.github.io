@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { NextRequest, NextResponse } from "next/server";
 import { requestHasAccess, unauthorizedResponse } from "../../shared-auth";
+import { corsPreflight, withCors } from "../../api-cors";
 
 type Definition = { example?: string };
 type Meaning = { definitions?: Definition[] };
@@ -169,7 +170,7 @@ async function enrichWithGemini(word: string, apiKey: string) {
   };
 }
 
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest) {
   if (!(await requestHasAccess(request))) return unauthorizedResponse();
   const word = request.nextUrl.searchParams.get("word")?.trim().toLowerCase();
   if (!word || !/^[a-z][a-z\s'-]*$/i.test(word)) {
@@ -235,3 +236,6 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const OPTIONS = corsPreflight;
+export async function GET(request: NextRequest) { return withCors(request, await handleGet(request)); }

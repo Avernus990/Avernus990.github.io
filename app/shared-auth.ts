@@ -27,6 +27,10 @@ export async function passwordIsValid(candidate: string) {
 }
 
 export async function requestHasAccess(request: Request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  const bearerToken = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (bearerToken) return bearerToken === await createAccessToken();
+
   const cookieHeader = request.headers.get("cookie") ?? "";
   const cookieValue = cookieHeader
     .split(";")

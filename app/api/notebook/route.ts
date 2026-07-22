@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { requestHasAccess, unauthorizedResponse } from "../../shared-auth";
+import { corsPreflight, withCors } from "../../api-cors";
 
 const createNotebookTable = `
   CREATE TABLE IF NOT EXISTS word_notebooks (
@@ -14,7 +15,7 @@ async function ensureNotebookTable() {
   await env.DB.prepare(createNotebookTable).run();
 }
 
-export async function GET(request: Request) {
+async function handleGet(request: Request) {
   try {
     if (!(await requestHasAccess(request))) return unauthorizedResponse();
     await ensureNotebookTable();
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function PUT(request: Request) {
+async function handlePut(request: Request) {
   try {
     if (!(await requestHasAccess(request))) return unauthorizedResponse();
     const body = await request.json() as { pages?: unknown; activePageId?: unknown; viewMode?: unknown; globalSort?: unknown };
@@ -77,3 +78,7 @@ export async function PUT(request: Request) {
     );
   }
 }
+
+export const OPTIONS = corsPreflight;
+export async function GET(request: Request) { return withCors(request, await handleGet(request)); }
+export async function PUT(request: Request) { return withCors(request, await handlePut(request)); }

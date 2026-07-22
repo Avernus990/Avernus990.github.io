@@ -4,8 +4,9 @@ import {
   passwordIsValid,
   requestHasAccess,
 } from "../../shared-auth";
+import { corsPreflight, withCors } from "../../api-cors";
 
-export async function GET(request: Request) {
+async function handleGet(request: Request) {
   try {
     return Response.json({ authenticated: await requestHasAccess(request) });
   } catch {
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   try {
     const body = await request.json() as { password?: string };
     if (!body.password || !(await passwordIsValid(body.password))) {
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
     }
 
     const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-    return new Response(JSON.stringify({ authenticated: true }), {
+    return new Response(JSON.stringify({ authenticated: true, accessToken: await createAccessToken() }), {
       headers: {
         "Content-Type": "application/json",
         "Set-Cookie": `${accessCookieName}=${await createAccessToken()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secure}`,
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function handleDelete(request: Request) {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return new Response(JSON.stringify({ authenticated: false }), {
     headers: {
@@ -41,3 +42,8 @@ export async function DELETE(request: Request) {
     },
   });
 }
+
+export const OPTIONS = corsPreflight;
+export async function GET(request: Request) { return withCors(request, await handleGet(request)); }
+export async function POST(request: Request) { return withCors(request, await handlePost(request)); }
+export async function DELETE(request: Request) { return withCors(request, await handleDelete(request)); }

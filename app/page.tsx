@@ -41,6 +41,21 @@ const starterPages: WordPage[] = [{ id: "page-1", name: "春日词语", words: s
 const tones: WordCard["tone"][] = ["lilac", "water", "peach", "sage"];
 const statuses: Array<"全部" | WordCard["status"]> = ["全部", "学习中", "待复习", "已掌握"];
 const wordEntryKey = (pageId: string, wordId: number) => `${pageId}:${wordId}`;
+const remoteApiBase = "https://lr-wordbook-shared.xieyuyang990.chatgpt.site";
+const accessTokenKey = "lr-wordbook-access-token";
+
+function apiFetch(path: string, init: RequestInit = {}) {
+  const useRemoteApi = typeof window !== "undefined" && (
+    window.location.hostname.toLowerCase() === "avernus990.github.io"
+    || (window.location.hostname === "localhost" && window.location.port === "4173")
+  );
+  const headers = new Headers(init.headers);
+  if (useRemoteApi) {
+    const accessToken = window.localStorage.getItem(accessTokenKey);
+    if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+  return fetch(`${useRemoteApi ? remoteApiBase : ""}${path}`, { ...init, headers });
+}
 
 function EditableText({ value, onChange, className = "", multiline = false, label, onBlur, autoFocus = false, onFocus, placeholder }: {
   value: string; onChange: (value: string) => void; className?: string; multiline?: boolean; label: string; onBlur?: () => void;
@@ -195,7 +210,7 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/access", { cache: "no-store" })
+    void apiFetch("/api/access", { cache: "no-store" })
       .then((response) => response.json() as Promise<{ authenticated?: boolean }>)
       .then((data) => { if (!cancelled) setAccessState(data.authenticated ? "unlocked" : "locked"); })
       .catch(() => { if (!cancelled) setAccessState("locked"); });
@@ -222,7 +237,7 @@ export default function Home() {
     let cancelled = false;
     const restorePages = async () => {
       try {
-        const response = await fetch("/api/notebook", { cache: "no-store" });
+        const response = await apiFetch("/api/notebook", { cache: "no-store" });
         const data = await response.json() as { pages?: WordPage[] | null; activePageId?: string | null; viewMode?: ViewMode; globalSort?: GlobalSort; error?: string };
         if (!response.ok) throw new Error(data.error || "读取网站数据库失败");
         if (cancelled) return;
@@ -247,7 +262,7 @@ export default function Home() {
           }
           setPages(pagesToMigrate);
           setActivePageId(pagesToMigrate[0].id);
-          const migrationResponse = await fetch("/api/notebook", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pages: pagesToMigrate, activePageId: pagesToMigrate[0].id, viewMode: "page", globalSort: "alphabetical" }) });
+          const migrationResponse = await apiFetch("/api/notebook", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pages: pagesToMigrate, activePageId: pagesToMigrate[0].id, viewMode: "page", globalSort: "alphabetical" }) });
           if (!migrationResponse.ok) throw new Error("现有数据迁移到后端失败");
           window.localStorage.removeItem("monet-word-garden-pages");
           window.localStorage.removeItem("monet-word-garden");
@@ -272,11 +287,14 @@ export default function Home() {
     if (!ready || accessState !== "unlocked") return;
     setSaveState("保存中");
     const timeout = window.setTimeout(() => {
-      void fetch("/api/notebook", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pages, activePageId, viewMode, globalSort }) })
+      void apiFetch("/api/notebook", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pages, activePageId, viewMode, globalSort }) })
         .then(async (response) => {
           if (!response.ok) {
             const data = await response.json() as { error?: string };
-            if (response.status === 401) setAccessState("locked");
+            if (response.status === 401) {
+              window.localStorage.removeItem(accessTokenKey);
+              setAccessState("locked");
+            }
             throw new Error(data.error || "保存失败");
           }
           setSaveState("已保存");
@@ -456,7 +474,7 @@ export default function Home() {
     if (!item?.word.trim() || loadingId !== null) return;
     setLoadingId(id); setMessage("");
     try {
-      const response = await fetch(`/api/enrich?word=${encodeURIComponent(item.word.trim())}`);
+      const response = await apiFetch(`/api/enrich?word=${encodeURIComponent(item.word.trim())}`);
       const data = await response.json() as { error?: string; phonetic?: string; part?: string; meaning?: string; examples?: string[]; translationAvailable?: boolean };
       if (!response.ok) throw new Error(data.error || "自动补全失败");
       updateWord(id, { phonetic: data.phonetic || item.phonetic, part: data.part || item.part, meaning: data.meaning || item.meaning, examples: data.examples?.length ? data.examples : item.examples });
@@ -514,13 +532,14 @@ export default function Home() {
     event.preventDefault();
     setAccessError("");
     try {
-      const response = await fetch("/api/access", {
+      const response = await apiFetch("/api/access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: accessPassword }),
       });
-      const data = await response.json() as { error?: string };
+      const data = await response.json() as { error?: string; accessToken?: string };
       if (!response.ok) throw new Error(data.error || "无法验证访问密码");
+      if (data.accessToken) window.localStorage.setItem(accessTokenKey, data.accessToken);
       setReady(false);
       setAccessPassword("");
       setAccessState("unlocked");
@@ -530,7 +549,8 @@ export default function Home() {
   };
 
   const signOut = async () => {
-    await fetch("/api/access", { method: "DELETE" });
+    await apiFetch("/api/access", { method: "DELETE" });
+    window.localStorage.removeItem(accessTokenKey);
     setReady(false);
     setAccessState("locked");
   };
