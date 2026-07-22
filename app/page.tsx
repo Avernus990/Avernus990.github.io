@@ -41,7 +41,7 @@ const starterPages: WordPage[] = [{ id: "page-1", name: "春日词语", words: s
 const tones: WordCard["tone"][] = ["lilac", "water", "peach", "sage"];
 const statuses: Array<"全部" | WordCard["status"]> = ["全部", "学习中", "待复习", "已掌握"];
 const wordEntryKey = (pageId: string, wordId: number) => `${pageId}:${wordId}`;
-const remoteApiBase = "https://lr-wordbook-shared.xieyuyang990.chatgpt.site";
+const remoteApiBase = "https://lr-wordbook-api.avernus990.workers.dev";
 const accessTokenKey = "lr-wordbook-access-token";
 
 function apiFetch(path: string, init: RequestInit = {}) {

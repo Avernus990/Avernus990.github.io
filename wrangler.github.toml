@@ -1,0 +1,10 @@
+name = "lr-wordbook-api"
+main = "cloudflare/worker.ts"
+compatibility_date = "2026-07-22"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lr-wordbook"
+database_id = "58754693-1eb8-4c07-9fda-91d755278e77"
