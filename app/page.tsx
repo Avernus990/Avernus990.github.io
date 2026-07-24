@@ -42,14 +42,7 @@ const tones: WordCard["tone"][] = ["lilac", "water", "peach", "sage"];
 const statuses: Array<"全部" | WordCard["status"]> = ["全部", "学习中", "待复习", "已掌握"];
 const wordEntryKey = (pageId: string, wordId: number) => `${pageId}:${wordId}`;
 const remoteApiBase = "https://lr-wordbook-api.avernus990.workers.dev";
-const hostedAssetBase = "https://lr-wordbook-pages-source.pages.dev";
 const accessTokenKey = "lr-wordbook-access-token";
-
-function assetUrl(path: string) {
-  const useHostedAssets = typeof window !== "undefined"
-    && window.location.hostname.toLowerCase() === "avernus990.github.io";
-  return `${useHostedAssets ? hostedAssetBase : ""}${path}`;
-}
 
 function apiFetch(path: string, init: RequestInit = {}) {
   const useRemoteApi = typeof window !== "undefined" && (
@@ -198,6 +191,7 @@ export default function Home() {
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [exportingAnki, setExportingAnki] = useState(false);
   const [saveState, setSaveState] = useState<"正在读取" | "保存中" | "已保存" | "保存失败">("正在读取");
   const [pageMenuOpen, setPageMenuOpen] = useState(false);
   const [accessState, setAccessState] = useState<"checking" | "locked" | "unlocked">("checking");
@@ -512,11 +506,11 @@ export default function Home() {
     try {
       const [{ createVocabularyPdf }, ...fontResponses] = await Promise.all([
         import("../lib/vocabulary-pdf"),
-        fetch(assetUrl("/fonts/NotoSansSC-Regular.ttf")),
-        fetch(assetUrl("/fonts/NotoSansSC-Bold.ttf")),
-        fetch(assetUrl("/fonts/NotoSans-Regular.ttf")),
-        fetch(assetUrl("/fonts/NotoSans-Bold.ttf")),
-        fetch(assetUrl("/fonts/NotoSans-Italic.ttf")),
+        fetch("/fonts/NotoSansSC-Regular.ttf"),
+        fetch("/fonts/NotoSansSC-Bold.ttf"),
+        fetch("/fonts/NotoSans-Regular.ttf"),
+        fetch("/fonts/NotoSans-Bold.ttf"),
+        fetch("/fonts/NotoSans-Italic.ttf"),
       ]);
       if (fontResponses.some((response) => !response.ok)) throw new Error("PDF 字体加载失败");
       const [cjkRegular, cjkBold, latinRegular, latinBold, latinItalic] = await Promise.all(fontResponses.map((response) => response.arrayBuffer()));
@@ -533,6 +527,52 @@ export default function Home() {
       setMessage(`已导出“${activePage.name}”，共 ${totalPages} 页`);
     } catch (error) { setMessage(error instanceof Error ? `PDF 生成失败：${error.message}` : "PDF 生成失败"); }
     finally { setExporting(false); }
+  };
+
+  const exportAnki = async () => {
+    if (!activePage || exportingAnki) return;
+    const wordCount = activePage.words.filter((item) => item.word.trim()).length;
+    if (!wordCount) { setMessage("当前页面还没有可导出的词条"); return; }
+
+    const date = new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replaceAll("/", "-");
+    const safeName = activePage.name.trim().replace(/[\\/:*?"<>|]/g, "-") || "未命名页";
+    const filename = `${date} 英语词汇积累 - ${safeName}.apkg`;
+    let fileHandle: SaveFileHandle | undefined;
+    const savePicker = (window as SavePickerWindow).showSaveFilePicker;
+
+    if (savePicker) {
+      try {
+        fileHandle = await savePicker({ suggestedName: filename, types: [{ description: "Anki 牌组", accept: { "application/octet-stream": [".apkg"] } }] });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+
+    setExportingAnki(true);
+    setMessage("正在生成当前页 Anki 牌组…");
+    try {
+      const { createAnkiPackage } = await import("../lib/anki-package");
+      const blob = await createAnkiPackage(activePage);
+      if (fileHandle) {
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } else {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      }
+      setMessage(`已导出“${activePage.name}”Anki 牌组，共 ${wordCount} 张卡片`);
+    } catch (error) {
+      setMessage(error instanceof Error ? `Anki 牌组生成失败：${error.message}` : "Anki 牌组生成失败");
+    } finally {
+      setExportingAnki(false);
+    }
   };
 
   const submitAccessPassword = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -646,7 +686,7 @@ export default function Home() {
         {viewMode === "review" ? <><div className="review-toolbar-copy"><strong>{reviewEntries.length}</strong><span>个词条等待复习</span></div><div /><div className="toolbar-actions"><button className="add-button" onClick={() => setViewMode("page")}>返回当前页</button></div></> : <>
           <label className="search-box"><span aria-hidden="true">⌕</span><input type="search" placeholder={viewMode === "all" ? "搜索全部页面…" : "搜索当前页…"} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
           <div className="filters" aria-label="按学习状态筛选">{statuses.map((status) => <button key={status} className={filter === status ? "active" : ""} onClick={() => setFilter(status)}>{status}</button>)}</div>
-          <div className="toolbar-actions">{viewMode === "all" ? <button className="add-button" onClick={() => setViewMode("page")}>返回当前页</button> : <><button className="export-button" disabled={exporting} onClick={exportPdf}>{exporting ? "正在生成…" : "下载当前页 PDF"}</button><button className="add-button" onClick={addWord}><span>＋</span> 添加单词</button></>}</div>
+          <div className="toolbar-actions">{viewMode === "all" ? <button className="add-button" onClick={() => setViewMode("page")}>返回当前页</button> : <><button className="export-button anki-export-button" disabled={exportingAnki} onClick={exportAnki}>{exportingAnki ? "正在生成…" : "导出 Anki"}</button><button className="export-button" disabled={exporting} onClick={exportPdf}>{exporting ? "正在生成…" : "导出 PDF"}</button><button className="add-button" onClick={addWord}><span>＋</span> 添加单词</button></>}</div>
         </>}
       </section>
       {message && <div className="api-message" role="status"><span>{message}</span>{undoAction && <button onClick={undoAction.undo}>{undoAction.label}</button>}</div>}

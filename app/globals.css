@@ -155,10 +155,12 @@ h1 em { color: #7f8e84; font-weight: 400; }
 .add-button { min-height: 42px; border: 1px solid rgba(55,71,61,.2); border-radius: 11px; background: rgba(255,255,255,.68); color: var(--ink); padding: 10px 16px; font-size: 10px; letter-spacing: .04em; box-shadow: 0 1px 0 rgba(255,255,255,.9) inset; transition: .18s ease; }
 .add-button:hover { border-color: #35483d; background: #35483d; color: white; transform: translateY(-1px); box-shadow: 0 7px 16px rgba(49,69,56,.16); }
 .add-button span { font-size: 15px; margin-right: 4px; }
-.toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.toolbar-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .export-button { min-height: 42px; border: 1px solid rgba(73,96,80,.18); border-radius: 11px; background: linear-gradient(145deg, #91a293, #788c7e); color: #fff; padding: 10px 16px; font-size: 10px; letter-spacing: .04em; transition: .18s ease; box-shadow: 0 1px 0 rgba(255,255,255,.2) inset, 0 7px 18px rgba(80,99,86,.14); }
 .export-button:hover { background: linear-gradient(145deg, #829685, #687c6f); transform: translateY(-1px); box-shadow: 0 10px 22px rgba(71,91,77,.19); }
 .export-button:disabled { cursor: wait; opacity: .62; transform: none; }
+.anki-export-button { border-color: rgba(99,86,119,.16); background: linear-gradient(145deg, #a99fba, #8d819f); box-shadow: 0 1px 0 rgba(255,255,255,.22) inset, 0 7px 18px rgba(91,78,111,.13); }
+.anki-export-button:hover { background: linear-gradient(145deg, #9b90ad, #7e728f); box-shadow: 0 10px 22px rgba(91,78,111,.18); }
 .api-message { width: max-content; max-width: 100%; display: flex; align-items: center; gap: 12px; margin: 13px 0 -18px auto; padding: 7px 9px 7px 12px; border-radius: 999px; background: rgba(146, 184, 190, .16); color: #60736d; font-size: 10px; }
 .api-message button { padding: 4px 9px; border: 0; border-radius: 999px; background: rgba(255,255,255,.72); color: #53695c; font-size: 9px; font-weight: 700; }
 .api-message button:hover { background: white; }
@@ -377,7 +379,7 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
   .page-heading input { width: 70vw; font-size: 27px; }
   .toolbar { grid-template-columns: 1fr; gap: 12px; padding: 16px 0; }
   .add-button { grid-row: 2; }
-  .toolbar-actions { grid-row: 2; }
+  .toolbar-actions { grid-row: 2; justify-content: flex-start; }
   .filters { grid-row: 3; grid-column: 1; padding-bottom: 3px; }
   .filters button { white-space: nowrap; }
   .global-controls select { min-width: 0; max-width: 190px; }
