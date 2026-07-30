@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import DailyTranslation, { type DailyWordInfo } from "./daily-translation";
 
 type WordCard = {
   id: number;
@@ -184,6 +185,7 @@ export default function Home() {
   const [pages, setPages] = useState<WordPage[]>(starterPages);
   const [activePageId, setActivePageId] = useState(starterPages[0].id);
   const [viewMode, setViewMode] = useState<ViewMode>("page");
+  const [surface, setSurface] = useState<"notebook" | "daily">("notebook");
   const [globalSort, setGlobalSort] = useState<GlobalSort>("alphabetical");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof statuses)[number]>("全部");
@@ -208,6 +210,13 @@ export default function Home() {
   const words = activePage?.words ?? [];
   const allWordEntries = useMemo(() => pages.flatMap((page) => page.words.map((word) => ({ pageId: page.id, pageName: page.name, word }))), [pages]);
   const reviewEntries = useMemo(() => allWordEntries.filter(({ word }) => word.status === "待复习"), [allWordEntries]);
+
+  useEffect(() => {
+    const syncSurface = () => setSurface(window.location.hash === "#daily-translation" ? "daily" : "notebook");
+    syncSurface();
+    window.addEventListener("hashchange", syncSurface);
+    return () => window.removeEventListener("hashchange", syncSurface);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -486,6 +495,45 @@ export default function Home() {
     finally { setLoadingId(null); }
   };
 
+  const enrichDailyWord = async (word: string): Promise<DailyWordInfo> => {
+    const response = await apiFetch(`/api/enrich?word=${encodeURIComponent(word.trim())}`);
+    const data = await response.json() as { error?: string; word?: string; phonetic?: string; part?: string; meaning?: string; examples?: string[] };
+    if (!response.ok) throw new Error(data.error || "查词服务暂时不可用");
+    return {
+      word: data.word || word,
+      phonetic: data.phonetic || "",
+      part: data.part || "",
+      meaning: data.meaning || "",
+      examples: data.examples || [],
+    };
+  };
+
+  const addDailyWordToNotebook = (pageId: string, info: DailyWordInfo, context: string, date: string) => {
+    const normalized = info.word.trim().toLowerCase();
+    const duplicate = allWordEntries.find(({ word }) => word.word.trim().toLowerCase() === normalized);
+    if (duplicate) return `“${info.word}”已经在“${duplicate.pageName || "未命名页"}”中`;
+    const targetPage = pages.find((page) => page.id === pageId);
+    if (!targetPage) return "没有找到目标词汇页";
+    const escaped = info.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const example = context
+      ? (context.includes(`**${info.word}**`) ? context : context.replace(new RegExp(escaped, "i"), "**$&**"))
+      : (info.examples[0] || "");
+    const item: WordCard = {
+      id: Date.now(),
+      word: info.word,
+      phonetic: info.phonetic,
+      part: info.part,
+      status: "学习中",
+      meaning: info.meaning,
+      examples: example ? [example] : [],
+      note: `来自每日翻译 · ${date}`,
+      tone: tones[targetPage.words.length % tones.length],
+      createdAt: Date.now(),
+    };
+    setPages((current) => current.map((page) => page.id === pageId ? { ...page, words: [...page.words, item] } : page));
+    return `已将“${info.word}”添加到“${targetPage.name || "未命名页"}”`;
+  };
+
   const exportPdf = async () => {
     if (!activePage || exporting) return;
     const date = new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replaceAll("/", "-");
@@ -602,6 +650,16 @@ export default function Home() {
     setAccessState("locked");
   };
 
+  const openDailyTranslation = () => {
+    window.location.hash = "daily-translation";
+    setSurface("daily");
+  };
+
+  const closeDailyTranslation = () => {
+    window.location.hash = "top";
+    setSurface("notebook");
+  };
+
   if (accessState !== "unlocked") {
     return <main className="access-page">
       <div className="access-wash access-wash-one" /><div className="access-wash access-wash-two" />
@@ -622,11 +680,22 @@ export default function Home() {
     </main>;
   }
 
+  if (surface === "daily") {
+    return <DailyTranslation
+      pages={pages}
+      activePageId={activePageId}
+      onBack={closeDailyTranslation}
+      onSignOut={() => void signOut()}
+      enrichWord={enrichDailyWord}
+      addToNotebook={addDailyWordToNotebook}
+    />;
+  }
+
   return <main>
     <div className="wash wash-one" /><div className="wash wash-two" />
     <div className="shell">
       <header className="masthead">
-        <div className="brand-row"><a className="brand" href="#top" aria-label="LR的单词本首页"><span className="brand-mark">LR</span><span>LR的单词本</span></a><div className="brand-actions"><p className="date-line">MY ENGLISH COLLECTION · {new Date().getFullYear()}</p><button onClick={signOut}>退出共享访问</button></div></div>
+        <div className="brand-row"><a className="brand" href="#top" aria-label="LR的单词本首页"><span className="brand-mark">LR</span><span>LR的单词本</span></a><div className="brand-actions"><p className="date-line">MY ENGLISH COLLECTION · {new Date().getFullYear()}</p><button className="daily-nav-button" onClick={openDailyTranslation}>每日翻译</button><button onClick={signOut}>退出共享访问</button></div></div>
         <div className="hero" id="top"><div><p className="eyebrow">A quiet place for beautiful words</p><h1>拾起词语，<br /><em>收藏微光。</em></h1></div><div className="hero-note"><span className="soft-rule" /><p>把新单词写成一张张小卡片。释义、例句与联想，都在这里慢慢生长。</p></div></div>
       </header>
 
