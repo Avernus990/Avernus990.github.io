@@ -41,11 +41,14 @@ function readLegacyStore() {
   }
 }
 
-function extractWords(text: string) {
-  const matches = text
-    .replace(/`[^`]*`/g, " ")
-    .match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) ?? [];
-  return [...new Set(matches.map((word) => word.replace("’", "'").toLowerCase()))];
+function extractBoldLookups(text: string) {
+  const lookups: string[] = [];
+  const pattern = /\*\*([^*\n]+?)\*\*/g;
+  for (const match of text.matchAll(pattern)) {
+    const lookup = normalizeLookup(match[1]).replaceAll("’", "'").toLowerCase();
+    if (lookup.length <= 80 && /^[a-z][a-z\s'-]*$/i.test(lookup)) lookups.push(lookup);
+  }
+  return [...new Set(lookups)];
 }
 
 function displayDate(value: string) {
@@ -213,9 +216,9 @@ export default function DailyTranslation({
 
   const autoLookupNewWords = async (value: string) => {
     const run = ++lookupRunRef.current;
-    const pending = extractWords(value).filter((word) => !store.words[word]);
+    const pending = extractBoldLookups(value).filter((word) => !store.words[word]);
     if (!pending.length) {
-      setAutoLookupState(value.trim() ? "句中单词均已缓存" : "");
+      setAutoLookupState(value.trim() ? "没有新的加粗词语需要查询" : "");
       return;
     }
     setAutoLookupState(`正在自动查询 ${pending.length} 个新词…`);
@@ -383,7 +386,7 @@ export default function DailyTranslation({
                   ? content.split("\n").map(renderLine)
                   : <div className="daily-empty"><span>✦</span><h3>今天还没有句子</h3><p>点击上方“编辑内容”，或上传一个 Markdown 文件。</p></div>}
               </article>}
-          <div className="daily-paper-foot"><span>使用“编辑内容 / 完成并浏览”切换模式</span><span>{autoLookupState || "完成编辑后自动查词并存入数据库"}</span></div>
+          <div className="daily-paper-foot"><span>使用“编辑内容 / 完成并浏览”切换模式</span><span>{autoLookupState || "仅自动查询 **加粗** 的单词或词组"}</span></div>
         </div>
 
         <aside className="daily-aside">
@@ -397,7 +400,7 @@ export default function DailyTranslation({
             <div className="daily-cache-list">
               {cachedWords.length
                 ? cachedWords.map((item) => <button key={item.word} onClick={(event) => void openWord(item.word, item.examples[0] || item.word, event)}><strong>{item.word}</strong><span>{item.phonetic || "已缓存"}</span></button>)
-                : <p>句子中的新词会自动查询并存入共享数据库。</p>}
+                : <p>加粗标记中的新单词或词组会自动查询并存入共享数据库。</p>}
             </div>
           </section>
         </aside>

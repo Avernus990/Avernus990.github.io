@@ -187,9 +187,9 @@ async function enrichWithGemini(word: string, apiKey: string) {
 
 async function enrichBatchWithGemini(words: string[], apiKey: string): Promise<BatchWordInfo[]> {
   const prompt = [
-    `English words: ${JSON.stringify(words)}`,
-    "For every word, return its standard IPA pronunciation, lowercase English part of speech, and 1 to 3 common concise Simplified Chinese meanings ordered by frequency.",
-    "Mark the most common everyday meaning with common: true. Do not omit any input word and do not write English definitions.",
+    `English words or phrases: ${JSON.stringify(words)}`,
+    "For every item, return its standard IPA pronunciation, lowercase English part of speech or precise phrase type, and 1 to 3 common concise Simplified Chinese meanings ordered by frequency.",
+    "Treat every multi-word item as one complete phrase. Mark the most common everyday meaning with common: true. Do not omit any input item and do not write English definitions.",
     'Reply with JSON only: {"words":[{"word":"example","phonetic":"/ɪɡˈzɑːmpəl/","part":"noun","meanings":[{"meaning":"例子","common":true}]}]}',
   ].join("\n");
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
@@ -360,8 +360,8 @@ async function handleEnrichBatch(request: Request, env: Env) {
   if (!Array.isArray(body.words)) return json(request, { error: "单词列表格式不正确" }, 400);
   const words = [...new Set(body.words
     .filter((word): word is string => typeof word === "string")
-    .map((word) => word.trim().toLowerCase())
-    .filter((word) => /^[a-z][a-z'-]*$/i.test(word)))]
+    .map((word) => word.trim().toLowerCase().replace(/\s+/g, " "))
+    .filter((word) => word.length <= 80 && /^[a-z][a-z\s'-]*$/i.test(word)))]
     .slice(0, 20);
   if (!words.length) return json(request, { words: [] });
   try {
