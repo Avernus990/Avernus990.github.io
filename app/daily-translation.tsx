@@ -258,6 +258,11 @@ export default function DailyTranslation({
     void autoLookupNewWords(value);
   };
 
+  const switchMode = () => {
+    if (editing) finishEditing(content);
+    else setEditing(true);
+  };
+
   const openWord = async (rawWord: string, context: string, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     const word = normalizeLookup(rawWord);
@@ -354,6 +359,7 @@ export default function DailyTranslation({
         <div className={`daily-sync-state ${saveState === "保存失败" ? "failed" : ""}`}><i />{saveState}</div>
         <input ref={fileInputRef} className="daily-file-input" type="file" accept=".md,text/markdown,text/plain" onChange={(event) => void importMarkdown(event.target.files?.[0])} />
         <button className="daily-soft-button" onClick={() => fileInputRef.current?.click()}>上传 Markdown</button>
+        <button className="daily-mode-button" onClick={switchMode}>{editing ? "完成并浏览" : "编辑内容"}</button>
       </section>
 
       <section className="daily-workspace">
@@ -370,31 +376,21 @@ export default function DailyTranslation({
                 aria-label="今日翻译 Markdown 内容"
                 value={content}
                 onChange={(event) => updateContent(event.target.value)}
-                onBlur={(event) => finishEditing(event.currentTarget.value)}
-                placeholder={"The quiet persistence of small steps can **transform** an ordinary day.\n\n把想查询的英文单词或短语写成 **粗体**。点击页面其他位置后，会自动预览并查询新单词。"}
-                autoFocus
+                placeholder={"The quiet persistence of small steps can **transform** an ordinary day.\n\n把想查询的英文单词或短语写成 **粗体**。完成后点击“完成并浏览”，系统会保存并查询新单词。"}
               />
-            : <article
-                className={`daily-preview daily-edit-surface ${content.trim() ? "" : "is-empty"}`}
-                onClick={() => setEditing(true)}
-                aria-label="点击进入每日翻译编辑"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") setEditing(true);
-                }}
-              >
+            : <article className={`daily-preview ${content.trim() ? "" : "is-empty"}`}>
                 {content.trim()
                   ? content.split("\n").map(renderLine)
-                  : <div className="daily-empty"><span>✦</span><h3>今天还没有句子</h3><p>点击这里开始输入，或上传一个 Markdown 文件。</p></div>}
+                  : <div className="daily-empty"><span>✦</span><h3>今天还没有句子</h3><p>点击上方“编辑内容”，或上传一个 Markdown 文件。</p></div>}
               </article>}
-          <div className="daily-paper-foot"><span>点击内容编辑 · 移开焦点自动保存并预览</span><span>{autoLookupState || "新单词会自动查询并存入数据库"}</span></div>
+          <div className="daily-paper-foot"><span>使用“编辑内容 / 完成并浏览”切换模式</span><span>{autoLookupState || "完成编辑后自动查词并存入数据库"}</span></div>
         </div>
 
         <aside className="daily-aside">
           <section>
             <p className="eyebrow">HOW IT WORKS</p>
             <h3>轻轻标记，慢慢积累</h3>
-            <ol><li><span>01</span>点击纸张输入或上传 Markdown</li><li><span>02</span>移开焦点后自动查词与预览</li><li><span>03</span>点击粗体词可收入词汇页</li></ol>
+            <ol><li><span>01</span>点击“编辑内容”或上传 Markdown</li><li><span>02</span>完成后切换浏览并自动查词</li><li><span>03</span>点击粗体词可收入词汇页</li></ol>
           </section>
           <section className="daily-cache-panel">
             <div><p className="eyebrow">SHARED DATABASE</p><small>{Object.keys(store.words).length} WORDS</small></div>

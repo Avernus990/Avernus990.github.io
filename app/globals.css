@@ -382,8 +382,6 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
 .daily-editor { flex: 1; width: 100%; min-height: 430px; resize: vertical; padding: 30px 4px; border: 0; outline: 0; background: transparent; color: #35463c; font-family: Georgia, "Songti SC", serif; font-size: clamp(18px, 1.55vw, 23px); line-height: 2.05; }
 .daily-editor::placeholder { color: #a3aaa4; }
 .daily-preview { flex: 1; min-height: 430px; padding: 28px 4px; color: #35463c; font-family: Georgia, "Songti SC", serif; font-size: clamp(18px, 1.55vw, 23px); line-height: 2.05; }
-.daily-edit-surface { cursor: text; border-radius: 13px; transition: background .18s ease, box-shadow .18s ease; }
-.daily-edit-surface:hover { background: rgba(255,255,255,.26); box-shadow: 0 0 0 1px rgba(87,106,93,.07); }
 .daily-preview > p { margin: 0 0 18px; }
 .daily-preview h1, .daily-preview h2, .daily-preview h3 { margin: 18px 0 12px; color: #31443a; font-size: 1.35em; line-height: 1.45; }
 .daily-preview blockquote { margin: 18px 0; padding: 6px 0 6px 20px; border-left: 3px solid rgba(146,184,190,.65); color: #68756d; font-style: italic; }
