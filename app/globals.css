@@ -343,7 +343,12 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
 .access-error { margin: 11px 0 0; color: #a3625c; font-size: 10px; text-align: left; }
 .access-card > small { display: block; margin-top: 34px; color: #9aa19c; font-size: 7px; letter-spacing: .2em; }
 
-.daily-nav-button { color: #695f7a !important; font-weight: 700; }
+.surface-switch { display: flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid rgba(74,91,80,.13); border-radius: 13px; background: rgba(255,255,255,.48); box-shadow: 0 1px 0 rgba(255,255,255,.85) inset, 0 6px 16px rgba(48,62,52,.05); }
+.brand-actions .surface-switch button { min-height: 32px; padding: 7px 12px; border: 0; border-radius: 9px; background: transparent; color: #6d7971; font-size: 10px; font-weight: 650; letter-spacing: .025em; transition: .18s ease; }
+.brand-actions .surface-switch button:hover { background: rgba(255,255,255,.62); color: #4f6056; }
+.brand-actions .surface-switch button.active { background: linear-gradient(145deg, rgba(151,169,154,.94), rgba(119,139,125,.96)); color: white; box-shadow: inset 0 1px 0 rgba(255,255,255,.24), 0 4px 10px rgba(67,86,73,.13); }
+.brand-actions .surface-switch button span { color: #eee9f3; }
+.brand-actions .sign-out-button { padding-left: 12px; color: #8a938d; }
 .daily-page { overflow: visible; }
 .daily-shell { min-height: calc(100vh - 56px); overflow: visible; }
 .daily-masthead { border-bottom: 1px solid var(--line); }
@@ -359,6 +364,10 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
 .daily-toolbar label span { padding-left: 2px; color: #7d8881; font-size: 8px; font-weight: 700; letter-spacing: .12em; }
 .daily-toolbar input[type="date"] { min-height: 40px; padding: 8px 12px; border: 1px solid var(--control-border); border-radius: 10px; background: rgba(255,255,255,.72); color: #4c5d53; font-family: Georgia, serif; font-size: 11px; }
 .daily-toolbar-spacer { flex: 1; }
+.daily-sync-state { display: flex; align-items: center; gap: 6px; align-self: center; padding: 0 7px; color: #7f8b83; font-size: 8px; letter-spacing: .04em; }
+.daily-sync-state i { width: 6px; height: 6px; border-radius: 50%; background: #8ba08f; box-shadow: 0 0 0 3px rgba(124,151,133,.1); }
+.daily-sync-state.failed { color: #a0645f; }
+.daily-sync-state.failed i { background: #b87770; }
 .daily-file-input { display: none; }
 .daily-soft-button, .daily-mode-button { min-height: 40px; padding: 9px 13px; border: 1px solid var(--control-border); border-radius: 10px; background: rgba(255,255,255,.67); color: #596b60; font-size: 9px; letter-spacing: .04em; transition: .18s ease; }
 .daily-soft-button:hover { border-color: rgba(81,102,88,.27); background: white; transform: translateY(-1px); }
@@ -373,6 +382,8 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
 .daily-editor { flex: 1; width: 100%; min-height: 430px; resize: vertical; padding: 30px 4px; border: 0; outline: 0; background: transparent; color: #35463c; font-family: Georgia, "Songti SC", serif; font-size: clamp(18px, 1.55vw, 23px); line-height: 2.05; }
 .daily-editor::placeholder { color: #a3aaa4; }
 .daily-preview { flex: 1; min-height: 430px; padding: 28px 4px; color: #35463c; font-family: Georgia, "Songti SC", serif; font-size: clamp(18px, 1.55vw, 23px); line-height: 2.05; }
+.daily-edit-surface { cursor: text; border-radius: 13px; transition: background .18s ease, box-shadow .18s ease; }
+.daily-edit-surface:hover { background: rgba(255,255,255,.26); box-shadow: 0 0 0 1px rgba(87,106,93,.07); }
 .daily-preview > p { margin: 0 0 18px; }
 .daily-preview h1, .daily-preview h2, .daily-preview h3 { margin: 18px 0 12px; color: #31443a; font-size: 1.35em; line-height: 1.45; }
 .daily-preview blockquote { margin: 18px 0; padding: 6px 0 6px 20px; border-left: 3px solid rgba(146,184,190,.65); color: #68756d; font-style: italic; }
@@ -388,6 +399,8 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
 .daily-empty > span { color: #a99fba; font-size: 24px; }
 .daily-empty h3 { margin: 10px 0 4px; font-size: 21px; }
 .daily-empty p { margin: 0; color: #8d9690; font-family: "Avenir Next", sans-serif; font-size: 10px; }
+.daily-loading-panel { flex: 1; min-height: 430px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #7f8a83; font-size: 9px; }
+.daily-loading-panel i { width: 13px; height: 13px; border: 2px solid rgba(103,122,109,.2); border-top-color: #7d9182; border-radius: 50%; animation: daily-spin .7s linear infinite; }
 .daily-aside { display: grid; align-content: start; gap: 16px; }
 .daily-aside > section { padding: 25px 23px; border: 1px solid rgba(255,255,255,.78); border-radius: 18px; background: rgba(247,245,237,.73); box-shadow: 0 1px 0 rgba(255,255,255,.75) inset, 0 12px 30px rgba(51,66,56,.055); }
 .daily-aside .eyebrow { margin-bottom: 8px; font-size: 8px; }
@@ -452,6 +465,9 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
   .shell { padding: 26px 18px 16px; border: 0; border-radius: 0; }
   .date-line { display: none; }
   .brand-actions { gap: 0; }
+  .brand-actions .surface-switch { gap: 2px; padding: 3px; }
+  .brand-actions .surface-switch button { min-height: 30px; padding: 6px 8px; font-size: 8px; }
+  .brand-actions .sign-out-button { display: none; }
   .hero { padding-top: 54px; }
   h1 { font-size: 45px; }
   .page-tabs { display: block; }
@@ -485,6 +501,7 @@ footer p { margin: 0; font-family: Georgia, serif; font-style: italic; font-size
   .daily-toolbar { align-items: stretch; flex-wrap: wrap; padding: 13px 0; border-right: 0; border-left: 0; border-radius: 0; }
   .daily-toolbar label { flex: 1 1 155px; }
   .daily-toolbar-spacer { display: none; }
+  .daily-sync-state { order: 4; width: 100%; padding: 5px 2px 0; }
   .daily-soft-button, .daily-mode-button { flex: 1 1 auto; }
   .daily-workspace { padding-top: 18px; }
   .daily-paper { min-height: 590px; padding: 26px 21px 18px; border-radius: 16px; }

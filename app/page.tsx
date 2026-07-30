@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import DailyTranslation, { type DailyWordInfo } from "./daily-translation";
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import DailyTranslation, { type DailyStore, type DailyWordInfo } from "./daily-translation";
 
 type WordCard = {
   id: number;
@@ -495,7 +495,7 @@ export default function Home() {
     finally { setLoadingId(null); }
   };
 
-  const enrichDailyWord = async (word: string): Promise<DailyWordInfo> => {
+  const enrichDailyWord = useCallback(async (word: string): Promise<DailyWordInfo> => {
     const response = await apiFetch(`/api/enrich?word=${encodeURIComponent(word.trim())}`);
     const data = await response.json() as { error?: string; word?: string; phonetic?: string; part?: string; meaning?: string; examples?: string[] };
     if (!response.ok) throw new Error(data.error || "查词服务暂时不可用");
@@ -506,7 +506,38 @@ export default function Home() {
       meaning: data.meaning || "",
       examples: data.examples || [],
     };
-  };
+  }, []);
+
+  const enrichDailyWords = useCallback(async (words: string[]): Promise<DailyWordInfo[]> => {
+    const response = await apiFetch("/api/enrich-batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ words }),
+    });
+    const data = await response.json() as { error?: string; words?: DailyWordInfo[] };
+    if (!response.ok) throw new Error(data.error || "批量查词服务暂时不可用");
+    return Array.isArray(data.words) ? data.words : [];
+  }, []);
+
+  const loadDailyStore = useCallback(async (): Promise<DailyStore> => {
+    const response = await apiFetch("/api/daily-translation", { cache: "no-store" });
+    const data = await response.json() as { error?: string; entries?: unknown; words?: unknown };
+    if (!response.ok) throw new Error(data.error || "无法读取每日翻译");
+    return {
+      entries: data.entries && typeof data.entries === "object" && !Array.isArray(data.entries) ? data.entries as DailyStore["entries"] : {},
+      words: data.words && typeof data.words === "object" && !Array.isArray(data.words) ? data.words as DailyStore["words"] : {},
+    };
+  }, []);
+
+  const saveDailyStore = useCallback(async (store: DailyStore) => {
+    const response = await apiFetch("/api/daily-translation", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(store),
+    });
+    const data = await response.json() as { error?: string };
+    if (!response.ok) throw new Error(data.error || "每日翻译保存失败");
+  }, []);
 
   const addDailyWordToNotebook = (pageId: string, info: DailyWordInfo, context: string, date: string) => {
     const normalized = info.word.trim().toLowerCase();
@@ -687,6 +718,9 @@ export default function Home() {
       onBack={closeDailyTranslation}
       onSignOut={() => void signOut()}
       enrichWord={enrichDailyWord}
+      enrichWords={enrichDailyWords}
+      loadStore={loadDailyStore}
+      saveStore={saveDailyStore}
       addToNotebook={addDailyWordToNotebook}
     />;
   }
@@ -695,7 +729,7 @@ export default function Home() {
     <div className="wash wash-one" /><div className="wash wash-two" />
     <div className="shell">
       <header className="masthead">
-        <div className="brand-row"><a className="brand" href="#top" aria-label="LR的单词本首页"><span className="brand-mark">LR</span><span>LR的单词本</span></a><div className="brand-actions"><p className="date-line">MY ENGLISH COLLECTION · {new Date().getFullYear()}</p><button className="daily-nav-button" onClick={openDailyTranslation}>每日翻译</button><button onClick={signOut}>退出共享访问</button></div></div>
+        <div className="brand-row"><a className="brand" href="#top" aria-label="LR的单词本首页"><span className="brand-mark">LR</span><span>LR的单词本</span></a><div className="brand-actions"><p className="date-line">MY ENGLISH COLLECTION · {new Date().getFullYear()}</p><div className="surface-switch" aria-label="切换学习空间"><button className="active">词汇卡片</button><button onClick={openDailyTranslation}><span>✦</span> 每日翻译</button></div><button className="sign-out-button" onClick={signOut}>退出共享访问</button></div></div>
         <div className="hero" id="top"><div><p className="eyebrow">A quiet place for beautiful words</p><h1>拾起词语，<br /><em>收藏微光。</em></h1></div><div className="hero-note"><span className="soft-rule" /><p>把新单词写成一张张小卡片。释义、例句与联想，都在这里慢慢生长。</p></div></div>
       </header>
 

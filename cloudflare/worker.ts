@@ -26,6 +26,14 @@ type GeminiResult = {
   meanings?: Array<string | { part?: string; meaning?: string; common?: boolean }>;
   example?: string;
 };
+type GeminiBatchResult = {
+  words?: Array<{
+    word?: string;
+    phonetic?: string;
+    part?: string;
+    meanings?: Array<string | { part?: string; meaning?: string; common?: boolean }>;
+  }>;
+};
 type GeminiPayload = {
   steps?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
   error?: { message?: string };
@@ -165,6 +173,58 @@ async function enrichWithGemini(word: string, apiKey: string) {
   };
 }
 
+async function enrichBatchWithGemini(words: string[], apiKey: string) {
+  const prompt = [
+    `English words: ${JSON.stringify(words)}`,
+    "For every word, return its standard IPA pronunciation, lowercase English part of speech, and 1 to 3 common concise Simplified Chinese meanings ordered by frequency.",
+    "Mark the most common everyday meaning with common: true. Do not omit any input word and do not write English definitions.",
+    'Reply with JSON only: {"words":[{"word":"example","phonetic":"/ɪɡˈzɑːmpəl/","part":"noun","meanings":[{"meaning":"例子","common":true}]}]}',
+  ].join("\n");
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+    signal: AbortSignal.timeout(25000),
+    body: JSON.stringify({
+      model: "gemini-flash-lite-latest",
+      input: prompt,
+      store: false,
+      generation_config: { temperature: 0.05, max_output_tokens: 2400 },
+    }),
+  });
+  const payload = await response.json() as GeminiPayload;
+  if (!response.ok) throw new Error(payload.error?.message || `Gemini 服务返回错误（${response.status}）`);
+  const text = payload.steps?.filter((step) => step.type === "model_output")
+    .flatMap((step) => step.content ?? [])
+    .filter((content) => content.type === "text")
+    .map((content) => content.text ?? "")
+    .join("")
+    .trim();
+  if (!text) throw new Error("Gemini 没有返回可用内容");
+  const unfenced = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  const result = JSON.parse(start >= 0 && end > start ? unfenced.slice(start, end + 1) : unfenced) as GeminiBatchResult;
+  const requested = new Set(words);
+  return (result.words ?? []).flatMap((item) => {
+    const word = (item.word ?? "").trim().toLowerCase();
+    if (!requested.has(word)) return [];
+    const meanings = (item.meanings ?? []).map((entry) => typeof entry === "string"
+      ? { meaning: entry.trim(), common: false }
+      : { meaning: (entry.meaning ?? "").trim(), common: entry.common === true })
+      .filter((entry) => entry.meaning && /[\u3400-\u9fff]/.test(entry.meaning))
+      .slice(0, 3);
+    if (!meanings.length) return [];
+    const markedCommon = meanings.some((entry) => entry.common);
+    return [{
+      word,
+      phonetic: formatPhonetic(item.phonetic ?? ""),
+      part: (item.part ?? "").trim().toLowerCase(),
+      meaning: meanings.map((entry, index) => `${index + 1}. ${entry.common || (!markedCommon && index === 0) ? `**${entry.meaning}**` : entry.meaning}`).join("\n"),
+      examples: [] as string[],
+    }];
+  });
+}
+
 async function handleAccess(request: Request, env: Env) {
   if (request.method === "GET") return json(request, { authenticated: await hasAccess(request, env) });
   if (request.method === "DELETE") return json(request, { authenticated: false });
@@ -210,6 +270,33 @@ async function handleNotebook(request: Request, env: Env) {
   return json(request, { saved: true, updatedAt: new Date().toISOString() });
 }
 
+async function handleDailyTranslation(request: Request, env: Env) {
+  if (!(await hasAccess(request, env))) return json(request, { error: "需要共享访问密码" }, 401);
+  await ensureNotebookTable(env);
+  if (request.method === "GET") {
+    const row = await env.DB.prepare("SELECT content, updated_at FROM word_notebooks WHERE id = ?")
+      .bind("daily-translation").first<{ content: string; updated_at: string }>();
+    const stored = row ? JSON.parse(row.content) as Record<string, unknown> : null;
+    return json(request, {
+      entries: stored?.entries && typeof stored.entries === "object" ? stored.entries : {},
+      words: stored?.words && typeof stored.words === "object" ? stored.words : {},
+      updatedAt: row?.updated_at ?? null,
+    });
+  }
+  if (request.method !== "PUT") return json(request, { error: "Method not allowed" }, 405);
+  const body = await request.json() as Record<string, unknown>;
+  if (!body.entries || typeof body.entries !== "object" || Array.isArray(body.entries)
+    || !body.words || typeof body.words !== "object" || Array.isArray(body.words)) {
+    return json(request, { error: "每日翻译数据格式不正确" }, 400);
+  }
+  const content = JSON.stringify({ entries: body.entries, words: body.words });
+  if (content.length > 2_000_000) return json(request, { error: "每日翻译数据过大" }, 413);
+  await env.DB.prepare(`INSERT INTO word_notebooks (id, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP`)
+    .bind("daily-translation", content).run();
+  return json(request, { saved: true, updatedAt: new Date().toISOString() });
+}
+
 async function handleEnrich(request: Request, env: Env) {
   if (!(await hasAccess(request, env))) return json(request, { error: "需要共享访问密码" }, 401);
   const word = new URL(request.url).searchParams.get("word")?.trim().toLowerCase();
@@ -236,6 +323,25 @@ async function handleEnrich(request: Request, env: Env) {
   }
 }
 
+async function handleEnrichBatch(request: Request, env: Env) {
+  if (!(await hasAccess(request, env))) return json(request, { error: "需要共享访问密码" }, 401);
+  if (!env.GEMINI_API_KEY) return json(request, { error: "智能补全尚未配置" }, 503);
+  const body = await request.json() as { words?: unknown };
+  if (!Array.isArray(body.words)) return json(request, { error: "单词列表格式不正确" }, 400);
+  const words = [...new Set(body.words
+    .filter((word): word is string => typeof word === "string")
+    .map((word) => word.trim().toLowerCase())
+    .filter((word) => /^[a-z][a-z'-]*$/i.test(word)))]
+    .slice(0, 30);
+  if (!words.length) return json(request, { words: [] });
+  try {
+    return json(request, { words: await enrichBatchWithGemini(words, env.GEMINI_API_KEY) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "批量查词失败";
+    return json(request, { error: message }, message.includes("429") ? 429 : 502);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
@@ -246,7 +352,9 @@ export default {
     try {
       if (url.pathname === "/api/access") return await handleAccess(request, env);
       if (url.pathname === "/api/notebook") return await handleNotebook(request, env);
+      if (url.pathname === "/api/daily-translation") return await handleDailyTranslation(request, env);
       if (url.pathname === "/api/enrich" && request.method === "GET") return await handleEnrich(request, env);
+      if (url.pathname === "/api/enrich-batch" && request.method === "POST") return await handleEnrichBatch(request, env);
       if (url.pathname === "/health") return json(request, { ok: true, service: "LR Wordbook API" });
       return json(request, { error: "Not found" }, 404);
     } catch (error) {

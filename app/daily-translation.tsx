@@ -11,12 +11,12 @@ export type DailyWordInfo = {
 };
 
 type NotebookPage = { id: string; name: string; words: Array<{ word: string }> };
-type DailyStore = {
+export type DailyStore = {
   entries: Record<string, string>;
   words: Record<string, DailyWordInfo>;
 };
 
-const cacheKey = "lr-daily-translation-v1";
+const legacyCacheKey = "lr-daily-translation-v1";
 const emptyStore: DailyStore = { entries: {}, words: {} };
 
 function localDate(date = new Date()) {
@@ -26,10 +26,10 @@ function localDate(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function readStore() {
+function readLegacyStore() {
   if (typeof window === "undefined") return emptyStore;
   try {
-    const saved = window.localStorage.getItem(cacheKey);
+    const saved = window.localStorage.getItem(legacyCacheKey);
     if (!saved) return emptyStore;
     const parsed = JSON.parse(saved) as Partial<DailyStore>;
     return {
@@ -39,6 +39,13 @@ function readStore() {
   } catch {
     return emptyStore;
   }
+}
+
+function extractWords(text: string) {
+  const matches = text
+    .replace(/`[^`]*`/g, " ")
+    .match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) ?? [];
+  return [...new Set(matches.map((word) => word.replace("’", "'").toLowerCase()))];
 }
 
 function displayDate(value: string) {
@@ -88,6 +95,9 @@ export default function DailyTranslation({
   onBack,
   onSignOut,
   enrichWord,
+  enrichWords,
+  loadStore,
+  saveStore,
   addToNotebook,
 }: {
   pages: NotebookPage[];
@@ -95,11 +105,18 @@ export default function DailyTranslation({
   onBack: () => void;
   onSignOut: () => void;
   enrichWord: (word: string) => Promise<DailyWordInfo>;
+  enrichWords: (words: string[]) => Promise<DailyWordInfo[]>;
+  loadStore: () => Promise<DailyStore>;
+  saveStore: (store: DailyStore) => Promise<void>;
   addToNotebook: (pageId: string, word: DailyWordInfo, context: string, date: string) => string;
 }) {
-  const [store, setStore] = useState<DailyStore>(() => readStore());
+  const [store, setStore] = useState<DailyStore>(emptyStore);
+  const [storeLoaded, setStoreLoaded] = useState(false);
+  const [storeCanSave, setStoreCanSave] = useState(false);
+  const [saveState, setSaveState] = useState<"正在载入" | "已存入数据库" | "正在保存" | "保存失败">("正在载入");
   const [date, setDate] = useState(() => localDate());
-  const [editing, setEditing] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [autoLookupState, setAutoLookupState] = useState("");
   const [selectedWord, setSelectedWord] = useState("");
   const [selectedContext, setSelectedContext] = useState("");
   const [selectedPageId, setSelectedPageId] = useState(activePageId);
@@ -110,6 +127,8 @@ export default function DailyTranslation({
   const [notice, setNotice] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lookupRunRef = useRef(0);
 
   const content = store.entries[date] ?? "";
   const selectedInfo = selectedWord ? store.words[selectedWord.toLowerCase()] : undefined;
@@ -119,8 +138,49 @@ export default function DailyTranslation({
   );
 
   useEffect(() => {
-    window.localStorage.setItem(cacheKey, JSON.stringify(store));
-  }, [store]);
+    let cancelled = false;
+    void loadStore()
+      .then(async (databaseStore) => {
+        if (cancelled) return;
+        const legacy = readLegacyStore();
+        const databaseIsEmpty = !Object.keys(databaseStore.entries).length && !Object.keys(databaseStore.words).length;
+        const legacyHasData = Object.keys(legacy.entries).length > 0 || Object.keys(legacy.words).length > 0;
+        const initial = databaseIsEmpty && legacyHasData ? legacy : databaseStore;
+        setStore(initial);
+        setStoreLoaded(true);
+        setStoreCanSave(true);
+        setSaveState("已存入数据库");
+        if (databaseIsEmpty && legacyHasData) {
+          await saveStore(initial);
+          window.localStorage.removeItem(legacyCacheKey);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setStoreLoaded(true);
+        setStoreCanSave(false);
+        setSaveState("保存失败");
+        setNotice(error instanceof Error ? error.message : "无法读取每日翻译");
+      });
+    return () => { cancelled = true; };
+  }, [loadStore, saveStore]);
+
+  useEffect(() => {
+    if (!storeLoaded || !storeCanSave) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSaveState("正在保存");
+    saveTimerRef.current = setTimeout(() => {
+      void saveStore(store)
+        .then(() => setSaveState("已存入数据库"))
+        .catch((error) => {
+          setSaveState("保存失败");
+          setNotice(error instanceof Error ? error.message : "保存失败，请稍后再试");
+        });
+    }, 650);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [saveStore, store, storeCanSave, storeLoaded]);
 
   useEffect(() => {
     if (pages.some((page) => page.id === activePageId)) setSelectedPageId(activePageId);
@@ -149,6 +209,53 @@ export default function DailyTranslation({
 
   const updateContent = (value: string) => {
     setStore((current) => ({ ...current, entries: { ...current.entries, [date]: value } }));
+  };
+
+  const autoLookupNewWords = async (value: string) => {
+    const run = ++lookupRunRef.current;
+    const pending = extractWords(value).filter((word) => !store.words[word]);
+    if (!pending.length) {
+      setAutoLookupState(value.trim() ? "句中单词均已缓存" : "");
+      return;
+    }
+    setAutoLookupState(`正在自动查询 ${pending.length} 个新词…`);
+    try {
+      const results: DailyWordInfo[] = [];
+      for (let index = 0; index < pending.length; index += 24) {
+        if (run !== lookupRunRef.current) return;
+        const batch = await enrichWords(pending.slice(index, index + 24));
+        results.push(...batch);
+        setAutoLookupState(`正在自动查询 ${pending.length} 个新词 · ${Math.min(index + 24, pending.length)}/${pending.length}`);
+      }
+      if (run !== lookupRunRef.current) return;
+      setStore((current) => ({
+        ...current,
+        words: {
+          ...current.words,
+          ...Object.fromEntries(results.map((item) => [item.word.toLowerCase(), item])),
+        },
+      }));
+      setAutoLookupState(`已自动缓存 ${results.length} 个新词`);
+    } catch (error) {
+      if (run !== lookupRunRef.current) return;
+      setAutoLookupState("自动查词暂时未完成");
+      setNotice(error instanceof Error ? error.message : "自动查词失败");
+    }
+  };
+
+  const finishEditing = (value: string) => {
+    setEditing(false);
+    if (storeCanSave) {
+      const snapshot = { ...store, entries: { ...store.entries, [date]: value } };
+      setSaveState("正在保存");
+      void saveStore(snapshot)
+        .then(() => setSaveState("已存入数据库"))
+        .catch((error) => {
+          setSaveState("保存失败");
+          setNotice(error instanceof Error ? error.message : "保存失败，请稍后再试");
+        });
+    }
+    void autoLookupNewWords(value);
   };
 
   const openWord = async (rawWord: string, context: string, event: MouseEvent<HTMLButtonElement>) => {
@@ -206,7 +313,8 @@ export default function DailyTranslation({
     const text = await file.text();
     updateContent(text);
     setEditing(false);
-    setNotice(`已载入 ${file.name}，内容保存在这台设备`);
+    void autoLookupNewWords(text);
+    setNotice(`已载入 ${file.name}，正在保存到共享数据库`);
   };
 
   const addSelectedWord = () => {
@@ -226,8 +334,11 @@ export default function DailyTranslation({
             <span className="brand-mark">LR</span><span>LR的单词本</span>
           </button>
           <div className="brand-actions">
-            <button className="daily-back-button" onClick={onBack}>返回单词本</button>
-            <button onClick={onSignOut}>退出共享访问</button>
+            <div className="surface-switch" aria-label="切换学习空间">
+              <button onClick={onBack}>词汇卡片</button>
+              <button className="active"><span>✦</span> 每日翻译</button>
+            </div>
+            <button className="sign-out-button" onClick={onSignOut}>退出共享访问</button>
           </div>
         </div>
         <div className="daily-hero">
@@ -240,9 +351,9 @@ export default function DailyTranslation({
         <label><span>练习日期</span><input type="date" value={date} onChange={(event) => setDate(event.target.value || localDate())} /></label>
         <button className="daily-soft-button" onClick={() => setDate(localDate())}>回到今天</button>
         <div className="daily-toolbar-spacer" />
+        <div className={`daily-sync-state ${saveState === "保存失败" ? "failed" : ""}`}><i />{saveState}</div>
         <input ref={fileInputRef} className="daily-file-input" type="file" accept=".md,text/markdown,text/plain" onChange={(event) => void importMarkdown(event.target.files?.[0])} />
         <button className="daily-soft-button" onClick={() => fileInputRef.current?.click()}>上传 Markdown</button>
-        <button className="daily-mode-button" onClick={() => setEditing((current) => !current)}>{editing ? "预览与查词" : "继续编辑"}</button>
       </section>
 
       <section className="daily-workspace">
@@ -251,34 +362,46 @@ export default function DailyTranslation({
             <div><p className="eyebrow">{displayDate(date)}</p><h2>{editing ? "写下今日句子" : "今日译读"}</h2></div>
             <span>{content.length} CHARACTERS</span>
           </div>
-          {editing
+          {!storeLoaded
+            ? <div className="daily-loading-panel"><i /><span>正在读取共享的每日翻译…</span></div>
+            : editing
             ? <textarea
                 className="daily-editor"
                 aria-label="今日翻译 Markdown 内容"
                 value={content}
                 onChange={(event) => updateContent(event.target.value)}
-                placeholder={"The quiet persistence of small steps can **transform** an ordinary day.\n\n把想查询的英文单词或短语写成 **粗体**，然后切换到预览。"}
+                onBlur={(event) => finishEditing(event.currentTarget.value)}
+                placeholder={"The quiet persistence of small steps can **transform** an ordinary day.\n\n把想查询的英文单词或短语写成 **粗体**。点击页面其他位置后，会自动预览并查询新单词。"}
+                autoFocus
               />
-            : <article className={`daily-preview ${content.trim() ? "" : "is-empty"}`}>
+            : <article
+                className={`daily-preview daily-edit-surface ${content.trim() ? "" : "is-empty"}`}
+                onClick={() => setEditing(true)}
+                aria-label="点击进入每日翻译编辑"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") setEditing(true);
+                }}
+              >
                 {content.trim()
                   ? content.split("\n").map(renderLine)
-                  : <div className="daily-empty"><span>✦</span><h3>今天还没有句子</h3><p>继续编辑，或上传一个 Markdown 文件。</p></div>}
+                  : <div className="daily-empty"><span>✦</span><h3>今天还没有句子</h3><p>点击这里开始输入，或上传一个 Markdown 文件。</p></div>}
               </article>}
-          <div className="daily-paper-foot"><span>内容自动缓存在当前设备</span><span>用 **单词** 标记可查询词语</span></div>
+          <div className="daily-paper-foot"><span>点击内容编辑 · 移开焦点自动保存并预览</span><span>{autoLookupState || "新单词会自动查询并存入数据库"}</span></div>
         </div>
 
         <aside className="daily-aside">
           <section>
             <p className="eyebrow">HOW IT WORKS</p>
             <h3>轻轻标记，慢慢积累</h3>
-            <ol><li><span>01</span>输入句子或上传 Markdown</li><li><span>02</span>用双星号加粗重点词</li><li><span>03</span>预览时点击词语查释义</li></ol>
+            <ol><li><span>01</span>点击纸张输入或上传 Markdown</li><li><span>02</span>移开焦点后自动查词与预览</li><li><span>03</span>点击粗体词可收入词汇页</li></ol>
           </section>
           <section className="daily-cache-panel">
-            <div><p className="eyebrow">LOCAL CACHE</p><small>{Object.keys(store.words).length} WORDS</small></div>
+            <div><p className="eyebrow">SHARED DATABASE</p><small>{Object.keys(store.words).length} WORDS</small></div>
             <div className="daily-cache-list">
               {cachedWords.length
                 ? cachedWords.map((item) => <button key={item.word} onClick={(event) => void openWord(item.word, item.examples[0] || item.word, event)}><strong>{item.word}</strong><span>{item.phonetic || "已缓存"}</span></button>)
-                : <p>查询过的重点词会留在这里，下次点开无需再次请求。</p>}
+                : <p>句子中的新词会自动查询并存入共享数据库。</p>}
             </div>
           </section>
         </aside>
