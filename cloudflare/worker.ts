@@ -34,6 +34,13 @@ type GeminiBatchResult = {
     meanings?: Array<string | { part?: string; meaning?: string; common?: boolean }>;
   }>;
 };
+type BatchWordInfo = {
+  word: string;
+  phonetic: string;
+  part: string;
+  meaning: string;
+  examples: string[];
+};
 type GeminiPayload = {
   steps?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
   error?: { message?: string };
@@ -149,7 +156,12 @@ async function enrichWithGemini(word: string, apiKey: string) {
   const unfenced = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   const start = unfenced.indexOf("{");
   const end = unfenced.lastIndexOf("}");
-  const result = JSON.parse(start >= 0 && end > start ? unfenced.slice(start, end + 1) : unfenced) as GeminiResult;
+  let result: GeminiResult;
+  try {
+    result = JSON.parse(start >= 0 && end > start ? unfenced.slice(start, end + 1) : unfenced) as GeminiResult;
+  } catch {
+    throw new Error("Gemini 返回格式异常，请稍后重试");
+  }
   const fallbackPart = (result.part ?? "").trim().toLowerCase();
   const meanings = (result.meanings ?? []).map((entry) => typeof entry === "string"
     ? { part: fallbackPart, meaning: entry.trim(), common: false }
@@ -173,7 +185,7 @@ async function enrichWithGemini(word: string, apiKey: string) {
   };
 }
 
-async function enrichBatchWithGemini(words: string[], apiKey: string) {
+async function enrichBatchWithGemini(words: string[], apiKey: string): Promise<BatchWordInfo[]> {
   const prompt = [
     `English words: ${JSON.stringify(words)}`,
     "For every word, return its standard IPA pronunciation, lowercase English part of speech, and 1 to 3 common concise Simplified Chinese meanings ordered by frequency.",
@@ -188,7 +200,7 @@ async function enrichBatchWithGemini(words: string[], apiKey: string) {
       model: "gemini-flash-lite-latest",
       input: prompt,
       store: false,
-      generation_config: { temperature: 0.05, max_output_tokens: 2400 },
+      generation_config: { temperature: 0.05, max_output_tokens: Math.min(1800, Math.max(700, words.length * 145)) },
     }),
   });
   const payload = await response.json() as GeminiPayload;
@@ -203,7 +215,18 @@ async function enrichBatchWithGemini(words: string[], apiKey: string) {
   const unfenced = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   const start = unfenced.indexOf("{");
   const end = unfenced.lastIndexOf("}");
-  const result = JSON.parse(start >= 0 && end > start ? unfenced.slice(start, end + 1) : unfenced) as GeminiBatchResult;
+  let result: GeminiBatchResult;
+  try {
+    result = JSON.parse(start >= 0 && end > start ? unfenced.slice(start, end + 1) : unfenced) as GeminiBatchResult;
+  } catch {
+    if (words.length > 1) {
+      const midpoint = Math.ceil(words.length / 2);
+      const first = await enrichBatchWithGemini(words.slice(0, midpoint), apiKey);
+      const second = await enrichBatchWithGemini(words.slice(midpoint), apiKey);
+      return [...first, ...second];
+    }
+    throw new Error(`“${words[0]}”的自动查询结果格式异常，请稍后重试`);
+  }
   const requested = new Set(words);
   return (result.words ?? []).flatMap((item) => {
     const word = (item.word ?? "").trim().toLowerCase();
@@ -276,7 +299,14 @@ async function handleDailyTranslation(request: Request, env: Env) {
   if (request.method === "GET") {
     const row = await env.DB.prepare("SELECT content, updated_at FROM word_notebooks WHERE id = ?")
       .bind("daily-translation").first<{ content: string; updated_at: string }>();
-    const stored = row ? JSON.parse(row.content) as Record<string, unknown> : null;
+    let stored: Record<string, unknown> | null = null;
+    if (row) {
+      try {
+        stored = JSON.parse(row.content) as Record<string, unknown>;
+      } catch {
+        return json(request, { error: "每日翻译的数据库记录无法解析，请联系管理员" }, 500);
+      }
+    }
     return json(request, {
       entries: stored?.entries && typeof stored.entries === "object" ? stored.entries : {},
       words: stored?.words && typeof stored.words === "object" ? stored.words : {},
@@ -332,12 +362,15 @@ async function handleEnrichBatch(request: Request, env: Env) {
     .filter((word): word is string => typeof word === "string")
     .map((word) => word.trim().toLowerCase())
     .filter((word) => /^[a-z][a-z'-]*$/i.test(word)))]
-    .slice(0, 30);
+    .slice(0, 20);
   if (!words.length) return json(request, { words: [] });
   try {
     return json(request, { words: await enrichBatchWithGemini(words, env.GEMINI_API_KEY) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "批量查词失败";
+    const rawMessage = error instanceof Error ? error.message : "批量查词失败";
+    const message = rawMessage.startsWith("Expected ") || rawMessage.includes("JSON")
+      ? "自动查词返回格式异常，系统已缩小批次，请再次移开编辑框重试"
+      : rawMessage;
     return json(request, { error: message }, message.includes("429") ? 429 : 502);
   }
 }

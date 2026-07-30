@@ -221,11 +221,11 @@ export default function DailyTranslation({
     setAutoLookupState(`正在自动查询 ${pending.length} 个新词…`);
     try {
       const results: DailyWordInfo[] = [];
-      for (let index = 0; index < pending.length; index += 24) {
+      for (let index = 0; index < pending.length; index += 10) {
         if (run !== lookupRunRef.current) return;
-        const batch = await enrichWords(pending.slice(index, index + 24));
+        const batch = await enrichWords(pending.slice(index, index + 10));
         results.push(...batch);
-        setAutoLookupState(`正在自动查询 ${pending.length} 个新词 · ${Math.min(index + 24, pending.length)}/${pending.length}`);
+        setAutoLookupState(`正在自动查询 ${pending.length} 个新词 · ${Math.min(index + 10, pending.length)}/${pending.length}`);
       }
       if (run !== lookupRunRef.current) return;
       setStore((current) => ({
